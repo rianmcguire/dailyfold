@@ -46,19 +46,28 @@ class BlockLayout:
     height: float
     text_x: float
     text_width: float
-    is_header: bool
 
+
+@dataclass
+class HeaderLayout:
+    text: str
+    y: float
+    height: float
+    text_x: float
+    text_width: float
+
+
+HEADER = "Wednesday, 24 April 2026"
 
 BLOCKS = [
-    Block(0, "Wednesday, 24 April 2026"),
-    Block(1, "dailyfold — hello, **world**"),
-    Block(2, "GTK3 window open"),
-    Block(2, "*custom* Cairo rendering"),
-    Block(2, "snapshot → PNG for feedback"),
-    Block(1, "click a bullet to edit — tab away or click elsewhere to commit"),
-    Block(1, "inline markdown: **bold**, *italic*, `code`"),
-    Block(1, "multi-line block\n(shift+enter later; for now any \\n in text)\nrenders across lines"),
-    Block(2, "styling **carries**\nacross *line* breaks too"),
+    Block(0, "dailyfold — hello, **world**"),
+    Block(1, "GTK3 window open"),
+    Block(1, "*custom* Cairo rendering"),
+    Block(1, "snapshot → PNG for feedback"),
+    Block(0, "click a bullet to edit — tab away or click elsewhere to commit"),
+    Block(0, "inline markdown: **bold**, *italic*, `code`"),
+    Block(0, "multi-line block\n(shift+enter later; for now any \\n in text)\nrenders across lines"),
+    Block(1, "styling **carries**\nacross *line* breaks too"),
 ]
 
 
@@ -78,7 +87,7 @@ def _header_font_of(body_font):
     return hf
 
 
-def compute_layouts(pango_context, width, body_font, blocks):
+def compute_layouts(pango_context, width, body_font, header_text, blocks):
     header_font = _header_font_of(body_font)
 
     sample = Pango.Layout.new(pango_context)
@@ -87,19 +96,32 @@ def compute_layouts(pango_context, width, body_font, blocks):
     _, body_ext = sample.get_pixel_extents()
     body_line_h = body_ext.height
 
-    layouts = []
     y = TOP_PAD
+
+    h_tx = X0
+    h_tw = max(1, width - h_tx - RIGHT_PAD)
+    h_lay = Pango.Layout.new(pango_context)
+    h_lay.set_font_description(header_font)
+    h_lay.set_width(h_tw * Pango.SCALE)
+    h_lay.set_wrap(Pango.WrapMode.WORD_CHAR)
+    h_lay.set_text(header_text, -1)
+    _, h_ext = h_lay.get_pixel_extents()
+    header_layout = HeaderLayout(
+        text=header_text,
+        y=y,
+        height=h_ext.height + TEXT_PAD * 2,
+        text_x=h_tx,
+        text_width=h_tw,
+    )
+    y += header_layout.height + HEADER_GAP
+
+    layouts = []
     for block in blocks:
-        if block.level == 0:
-            font = header_font
-            tx = X0
-        else:
-            font = body_font
-            tx = X0 + block.level * INDENT + BULLET_GAP
+        tx = X0 + block.level * INDENT + BULLET_GAP
         tw = max(1, width - tx - RIGHT_PAD)
 
         lay = Pango.Layout.new(pango_context)
-        lay.set_font_description(font)
+        lay.set_font_description(body_font)
         lay.set_width(tw * Pango.SCALE)
         lay.set_wrap(Pango.WrapMode.WORD_CHAR)
         lay.set_markup(runs_to_markup(tokenize_inline(block.text)), -1)
@@ -114,16 +136,15 @@ def compute_layouts(pango_context, width, body_font, blocks):
                 height=block_h,
                 text_x=tx,
                 text_width=tw,
-                is_header=(block.level == 0),
             )
         )
         y += block_h
-        if block.level == 0:
-            y += HEADER_GAP
-    return layouts
+    return header_layout, layouts
 
 
-def paint_blocks(cr, width, height, body_font, layouts, fg=FG, skip_text_for=None):
+def paint_blocks(
+    cr, width, height, body_font, header_layout, layouts, fg=FG, skip_text_for=None
+):
     cr.set_source_rgb(*BG)
     cr.paint()
 
@@ -136,30 +157,36 @@ def paint_blocks(cr, width, height, body_font, layouts, fg=FG, skip_text_for=Non
     _, body_ext = sample.get_pixel_extents()
     body_line_h = body_ext.height
 
+    layout.set_font_description(header_font)
+    layout.set_width(header_layout.text_width * Pango.SCALE)
+    layout.set_wrap(Pango.WrapMode.WORD_CHAR)
+    layout.set_text(header_layout.text, -1)
+    cr.set_source_rgb(*fg)
+    cr.move_to(header_layout.text_x, header_layout.y + TEXT_PAD)
+    PangoCairo.show_layout(cr, layout)
+
     for bl in layouts:
         block = bl.block
-        font = header_font if bl.is_header else body_font
 
-        if not bl.is_header and block.level > 1:
+        if block.level > 0:
             cr.set_source_rgb(*GUIDE)
             cr.set_line_width(1)
-            for g in range(1, block.level):
+            for g in range(1, block.level + 1):
                 gxi = X0 + g * INDENT - INDENT // 2
                 cr.move_to(gxi + 0.5, bl.y)
                 cr.line_to(gxi + 0.5, bl.y + bl.height)
                 cr.stroke()
 
-        if not bl.is_header:
-            cr.set_source_rgb(*DIM)
-            bullet_x = X0 + block.level * INDENT + 5
-            bullet_y = bl.y + TEXT_PAD + body_line_h / 2
-            cr.arc(bullet_x, bullet_y, 2.5, 0, 2 * 3.14159)
-            cr.fill()
+        cr.set_source_rgb(*DIM)
+        bullet_x = X0 + block.level * INDENT + 5
+        bullet_y = bl.y + TEXT_PAD + body_line_h / 2
+        cr.arc(bullet_x, bullet_y, 2.5, 0, 2 * 3.14159)
+        cr.fill()
 
         if block is skip_text_for:
             continue
 
-        layout.set_font_description(font)
+        layout.set_font_description(body_font)
         layout.set_width(bl.text_width * Pango.SCALE)
         layout.set_wrap(Pango.WrapMode.WORD_CHAR)
         layout.set_markup(runs_to_markup(tokenize_inline(block.text)), -1)
@@ -169,9 +196,11 @@ def paint_blocks(cr, width, height, body_font, layouts, fg=FG, skip_text_for=Non
 
 
 class BlocksView(Gtk.Overlay):
-    def __init__(self, blocks):
+    def __init__(self, header_text, blocks):
         super().__init__()
+        self.header_text = header_text
         self.blocks = blocks
+        self.header_layout = None
         self.layouts = []
         self.editing_block = None
         self.edit_view = None
@@ -187,8 +216,12 @@ class BlocksView(Gtk.Overlay):
 
     def _recompute_layouts(self, width):
         body_font = resolve_body_font(self.canvas)
-        self.layouts = compute_layouts(
-            self.canvas.get_pango_context(), width, body_font, self.blocks
+        self.header_layout, self.layouts = compute_layouts(
+            self.canvas.get_pango_context(),
+            width,
+            body_font,
+            self.header_text,
+            self.blocks,
         )
 
     def _on_draw(self, widget, cr):
@@ -203,6 +236,7 @@ class BlocksView(Gtk.Overlay):
             alloc.width,
             alloc.height,
             resolve_body_font(widget),
+            self.header_layout,
             self.layouts,
             fg=(rgba.red, rgba.green, rgba.blue),
             skip_text_for=self.editing_block,
@@ -221,10 +255,9 @@ class BlocksView(Gtk.Overlay):
 
     def _cursor_from_click(self, bl, click_x, click_y):
         body_font = resolve_body_font(self.canvas)
-        font = _header_font_of(body_font) if bl.is_header else body_font
 
         lay = Pango.Layout.new(self.canvas.get_pango_context())
-        lay.set_font_description(font)
+        lay.set_font_description(body_font)
         lay.set_width(bl.text_width * Pango.SCALE)
         lay.set_wrap(Pango.WrapMode.WORD_CHAR)
         runs = tokenize_inline(bl.block.text)
@@ -410,7 +443,7 @@ class BlocksView(Gtk.Overlay):
         block = self.editing_block
 
         if shift:
-            if block.level <= 1:
+            if block.level <= 0:
                 return True
             delta = -1
         else:
@@ -460,8 +493,6 @@ class BlocksView(Gtk.Overlay):
             return False
 
         prev = self.blocks[b - 1]
-        if prev.level == 0:
-            return False
 
         block = self.editing_block
         prev_lines = prev.text.split("\n")
@@ -512,11 +543,11 @@ class BlocksView(Gtk.Overlay):
 
 
 class AppWindow(Gtk.Window):
-    def __init__(self, blocks):
+    def __init__(self, header_text, blocks):
         super().__init__(title="dailyfold")
         self.set_default_size(720, 480)
         self.connect("destroy", Gtk.main_quit)
-        self.add(BlocksView(blocks))
+        self.add(BlocksView(header_text, blocks))
 
 
 DEFAULT_SNAPSHOT = os.path.join(os.path.dirname(__file__), "snapshots", "latest.png")
@@ -528,8 +559,10 @@ def snapshot(path, width=720, height=480):
     cr = cairo.Context(surface)
     body_font = resolve_body_font()
     pango_context = PangoCairo.create_layout(cr).get_context()
-    layouts = compute_layouts(pango_context, width, body_font, BLOCKS)
-    paint_blocks(cr, width, height, body_font, layouts)
+    header_layout, layouts = compute_layouts(
+        pango_context, width, body_font, HEADER, BLOCKS
+    )
+    paint_blocks(cr, width, height, body_font, header_layout, layouts)
     surface.write_to_png(path)
 
 
@@ -551,7 +584,7 @@ def main():
         snapshot(args.snapshot, args.width, args.height)
         return
 
-    win = AppWindow(BLOCKS)
+    win = AppWindow(HEADER, BLOCKS)
     win.show_all()
 
     def _graceful_quit():
