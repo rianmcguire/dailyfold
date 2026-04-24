@@ -302,6 +302,11 @@ class BlocksView(Gtk.Overlay):
                 return self._handle_right()
             if event.keyval == Gdk.KEY_Tab:
                 return self._handle_tab(shift=False)
+            if event.keyval in (Gdk.KEY_Return, Gdk.KEY_KP_Enter):
+                return self._handle_enter()
+            if event.keyval == Gdk.KEY_BackSpace:
+                if self._maybe_handle_backspace_join():
+                    return True
         if state == Gdk.ModifierType.SHIFT_MASK and event.keyval in (
             Gdk.KEY_Tab,
             Gdk.KEY_ISO_Left_Tab,
@@ -426,6 +431,52 @@ class BlocksView(Gtk.Overlay):
 
         self.canvas.queue_draw()
         self.queue_resize()
+        return True
+
+    def _handle_enter(self):
+        if self.editing_block is None:
+            return False
+        b = self._block_index(self.editing_block)
+        block = self.editing_block
+
+        buf = self.edit_view.get_buffer()
+        offset = buf.get_iter_at_mark(buf.get_insert()).get_offset()
+        left = block.text[:offset]
+        right = block.text[offset:]
+
+        new_block = Block(level=block.level, text=right)
+        insert_idx = self._subtree_end(b)
+        self.blocks.insert(insert_idx, new_block)
+
+        buf.set_text(left)
+        self._move_to_block(insert_idx, 0, 0)
+        return True
+
+    def _maybe_handle_backspace_join(self):
+        if self.editing_block is None:
+            return False
+        b, l, c = self._current_position()
+        if b <= 0 or l != 0 or c != 0:
+            return False
+
+        prev = self.blocks[b - 1]
+        if prev.level == 0:
+            return False
+
+        block = self.editing_block
+        prev_lines = prev.text.split("\n")
+        join_line = len(prev_lines) - 1
+        join_col = len(prev_lines[-1])
+
+        end = self._subtree_end(b)
+        delta = prev.level - block.level
+        for i in range(b + 1, end):
+            self.blocks[i].level += delta
+
+        prev.text = prev.text + block.text
+        del self.blocks[b]
+
+        self._move_to_block(b - 1, join_line, join_col)
         return True
 
     def _handle_right(self):
