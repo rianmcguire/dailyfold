@@ -300,6 +300,13 @@ class BlocksView(Gtk.Overlay):
                 return self._handle_left()
             if event.keyval == Gdk.KEY_Right:
                 return self._handle_right()
+            if event.keyval == Gdk.KEY_Tab:
+                return self._handle_tab(shift=False)
+        if state == Gdk.ModifierType.SHIFT_MASK and event.keyval in (
+            Gdk.KEY_Tab,
+            Gdk.KEY_ISO_Left_Tab,
+        ):
+            return self._handle_tab(shift=True)
         self.desired_col = None
         return False
 
@@ -382,6 +389,43 @@ class BlocksView(Gtk.Overlay):
             prev_lines = self.blocks[b - 1].text.split("\n")
             self._move_to_block(b - 1, len(prev_lines) - 1, len(prev_lines[-1]))
             return True
+        return True
+
+    def _subtree_end(self, b):
+        base = self.blocks[b].level
+        end = b + 1
+        while end < len(self.blocks) and self.blocks[end].level > base:
+            end += 1
+        return end
+
+    def _handle_tab(self, shift):
+        if self.editing_block is None:
+            return False
+        b = self._block_index(self.editing_block)
+        block = self.editing_block
+
+        if shift:
+            if block.level <= 1:
+                return True
+            delta = -1
+        else:
+            prev_sibling = None
+            for i in range(b - 1, -1, -1):
+                if self.blocks[i].level < block.level:
+                    break
+                if self.blocks[i].level == block.level:
+                    prev_sibling = i
+                    break
+            if prev_sibling is None:
+                return True
+            delta = 1
+
+        end = self._subtree_end(b)
+        for i in range(b, end):
+            self.blocks[i].level += delta
+
+        self.canvas.queue_draw()
+        self.queue_resize()
         return True
 
     def _handle_right(self):

@@ -6,7 +6,6 @@ Everything we've discussed but haven't built yet. Grouped roughly in order of wh
 
 - **Enter splits a block** — at cursor position, split `block.text` at source offset; left half stays in current block, right half becomes a new sibling at same level immediately after. Cursor moves to `(new_block, 0, 0)`. Currently Enter inserts a `\n` inside the TextView (which gives us a multi-line block — fine, just not what Enter should do).
 - **Backspace-at-start joins** — at `(b, 0, 0)` with `b > 0`: append current block's text directly to the end of previous block's last source line (no separator `\n`), cursor lands at the join point `(b-1, last_line, len(last_line_before_join))`, current block is deleted. If current block has children, they re-parent to previous block. Does NOT outdent — Shift-Tab does that.
-- **Tab / Shift-Tab indent/outdent** — re-parents the current block within the tree. Tab: increase `level` by 1 (only valid if previous sibling exists to become new parent). Shift-Tab: decrease `level` by 1 (only valid if `level > 1`; level 0 is the date header). Cursor position within block preserved.
 - **Block-level selection** — select one or more whole blocks (shift+click, shift+arrow) to move/delete/indent/outdent as a group. Logseq/Workflowy style. Confirmed scope, not yet built.
 - **Move blocks** — drag or keyboard (alt+up/down) to reorder within siblings; also "move into" / "move out of" parent.
 - **Folding** — collapse/expand a block's descendants. Toggle via click on bullet (bullet style changes to indicate collapsed state) and/or keyboard (Logseq uses Tab on a non-editing block, or a dedicated shortcut — pick one that doesn't collide with indent). Navigation (↑/↓) should skip over hidden descendants. Selecting/moving/deleting a folded block acts on the whole subtree. Persistence: two options worth weighing — (a) Logseq-compatible `collapsed:: true` block property, which round-trips folds through shared files but adds visible noise to the `.md`; (b) a sidecar (JSON next to each day's file, or single file in XDG state dir) that keeps the markdown clean but means folds don't survive Logseq edits of the same file. Could also do both: read/write `collapsed::` when present, fall back to sidecar otherwise.
@@ -21,8 +20,7 @@ Everything we've discussed but haven't built yet. Grouped roughly in order of wh
 
 ## Polish / known issues
 
-- **Header editing font** — clicking a level-0 header mounts a TextView with body font instead of header font; text size jumps on focus. Either render the TextView with the header font, or disable editing of level-0 blocks, or rethink what level-0 means (is it really just the date header?).
-- **Broadway assertion on abrupt client disconnect** — SIGTERM handler now quits cleanly, but any crash (OOM, unhandled exception) will still kill broadwayd. Consider `systemd --user` or a supervisor for the dev loop.
+- **indent lines should be aligned with bullets**
 
 ## Persistence / journaling (the actual app)
 
