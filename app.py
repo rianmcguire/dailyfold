@@ -23,6 +23,7 @@ BG = (1.0, 1.0, 1.0)
 FG = (0.13, 0.13, 0.13)
 DIM = (0.55, 0.55, 0.57)
 GUIDE = (0.87, 0.87, 0.89)
+SELECTION_BG = (0.83, 0.90, 0.99)
 
 X0 = 32
 INDENT = 22
@@ -33,7 +34,7 @@ HEADER_GAP = 8
 RIGHT_PAD = 16
 
 
-@dataclass
+@dataclass(eq=False)
 class Block:
     level: int
     text: str
@@ -143,8 +144,17 @@ def compute_layouts(pango_context, width, body_font, header_text, blocks):
 
 
 def paint_blocks(
-    cr, width, height, body_font, header_layout, layouts, fg=FG, skip_text_for=None
+    cr,
+    width,
+    height,
+    body_font,
+    header_layout,
+    layouts,
+    fg=FG,
+    skip_text_for=None,
+    selected_blocks=None,
 ):
+    selected_blocks = selected_blocks or set()
     cr.set_source_rgb(*BG)
     cr.paint()
 
@@ -167,6 +177,11 @@ def paint_blocks(
 
     for bl in layouts:
         block = bl.block
+
+        if block in selected_blocks:
+            cr.set_source_rgb(*SELECTION_BG)
+            cr.rectangle(0, bl.y, width, bl.height)
+            cr.fill()
 
         if block.level > 0:
             cr.set_source_rgb(*GUIDE)
@@ -205,11 +220,16 @@ class BlocksView(Gtk.Overlay):
         self.editing_block = None
         self.edit_view = None
         self.desired_col = None
+        self.selection = None
 
         self.canvas = Gtk.DrawingArea()
-        self.canvas.add_events(Gdk.EventMask.BUTTON_PRESS_MASK)
+        self.canvas.set_can_focus(True)
+        self.canvas.add_events(
+            Gdk.EventMask.BUTTON_PRESS_MASK | Gdk.EventMask.KEY_PRESS_MASK
+        )
         self.canvas.connect("draw", self._on_draw)
         self.canvas.connect("button-press-event", self._on_click)
+        self.canvas.connect("key-press-event", self._on_canvas_key_press)
         self.add(self.canvas)
 
         self.connect("get-child-position", self._position_overlay)
@@ -231,6 +251,10 @@ class BlocksView(Gtk.Overlay):
         found, rgba = sc.lookup_color("theme_text_color")
         if not found:
             rgba = sc.get_color(Gtk.StateFlags.NORMAL)
+        selected_blocks = set()
+        if self.selection is not None:
+            for i in self._selection_indices():
+                selected_blocks.add(self.blocks[i])
         paint_blocks(
             cr,
             alloc.width,
@@ -240,12 +264,16 @@ class BlocksView(Gtk.Overlay):
             self.layouts,
             fg=(rgba.red, rgba.green, rgba.blue),
             skip_text_for=self.editing_block,
+            selected_blocks=selected_blocks,
         )
         return False
 
     def _on_click(self, widget, event):
         if self.edit_view is not None:
             self._finish_editing()
+        if self.selection is not None:
+            self.selection = None
+            self.canvas.queue_draw()
         for bl in self.layouts:
             if bl.y <= event.y < bl.y + bl.height:
                 cursor = self._cursor_from_click(bl, event.x, event.y)
@@ -345,6 +373,11 @@ class BlocksView(Gtk.Overlay):
             Gdk.KEY_ISO_Left_Tab,
         ):
             return self._handle_tab(shift=True)
+        if state == Gdk.ModifierType.MOD1_MASK and event.keyval in (
+            Gdk.KEY_Up,
+            Gdk.KEY_Down,
+        ):
+            return self._enter_selection_mode()
         self.desired_col = None
         return False
 
@@ -522,6 +555,82 @@ class BlocksView(Gtk.Overlay):
         if b < len(self.blocks) - 1:
             self._move_to_block(b + 1, 0, 0)
             return True
+        return True
+
+    def _selection_indices(self):
+        if self.selection is None:
+            return range(0, 0)
+        anchor, head = self.selection
+        lo = min(anchor, head)
+        hi = max(anchor, head)
+        end = hi + 1
+        for i in range(lo, hi + 1):
+            end = max(end, self._subtree_end(i))
+        return range(lo, end)
+
+    def _enter_selection_mode(self):
+        if self.editing_block is None:
+            return False
+        idx = self._block_index(self.editing_block)
+        self._finish_editing()
+        self.selection = (idx, idx)
+        self.canvas.grab_focus()
+        self.canvas.queue_draw()
+        return True
+
+    def _on_canvas_key_press(self, widget, event):
+        if self.selection is None:
+            return False
+        state = event.state & Gtk.accelerator_get_default_mod_mask()
+        anchor, head = self.selection
+        n = len(self.blocks)
+        if n == 0:
+            return False
+
+        if state == 0:
+            if event.keyval == Gdk.KEY_Up:
+                indices = self._selection_indices()
+                new = max(0, indices[0] - 1)
+                self.selection = (new, new)
+                self.canvas.queue_draw()
+                return True
+            if event.keyval == Gdk.KEY_Down:
+                indices = self._selection_indices()
+                new = min(n - 1, indices[-1] + 1)
+                self.selection = (new, new)
+                self.canvas.queue_draw()
+                return True
+            if event.keyval == Gdk.KEY_Left:
+                return self._exit_selection_to_edit(at_end=False)
+            if event.keyval == Gdk.KEY_Right:
+                return self._exit_selection_to_edit(at_end=True)
+            if event.keyval == Gdk.KEY_Escape:
+                self.selection = None
+                self.canvas.queue_draw()
+                return True
+
+        if state in (Gdk.ModifierType.SHIFT_MASK, Gdk.ModifierType.MOD1_MASK):
+            if event.keyval == Gdk.KEY_Up:
+                self.selection = (anchor, max(0, head - 1))
+                self.canvas.queue_draw()
+                return True
+            if event.keyval == Gdk.KEY_Down:
+                self.selection = (anchor, min(n - 1, head + 1))
+                self.canvas.queue_draw()
+                return True
+
+        return False
+
+    def _exit_selection_to_edit(self, at_end):
+        indices = self._selection_indices()
+        target_idx = indices[-1] if at_end else indices[0]
+        target = self.blocks[target_idx]
+        self.selection = None
+        if at_end:
+            lines = target.text.split("\n")
+            self._move_to_block(target_idx, len(lines) - 1, len(lines[-1]))
+        else:
+            self._move_to_block(target_idx, 0, 0)
         return True
 
     def _on_edit_focus_out(self, widget, event):
