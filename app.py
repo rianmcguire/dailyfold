@@ -11,6 +11,13 @@ gi.require_version("Gdk", "3.0")
 gi.require_version("PangoCairo", "1.0")
 from gi.repository import Gdk, GLib, Gtk, Pango, PangoCairo
 
+from markdown import (
+    display_char_from_byte,
+    runs_to_markup,
+    source_offset_from_display,
+    tokenize_inline,
+)
+
 
 BG = (1.0, 1.0, 1.0)
 FG = (0.13, 0.13, 0.13)
@@ -44,11 +51,12 @@ class BlockLayout:
 
 BLOCKS = [
     Block(0, "Wednesday, 24 April 2026"),
-    Block(1, "dailyfold — hello, world"),
+    Block(1, "dailyfold — hello, **world**"),
     Block(2, "GTK3 window open"),
-    Block(2, "custom Cairo rendering"),
+    Block(2, "*custom* Cairo rendering"),
     Block(2, "snapshot → PNG for feedback"),
     Block(1, "click a bullet to edit — tab away or click elsewhere to commit"),
+    Block(1, "inline markdown: **bold**, *italic*, `code`"),
 ]
 
 
@@ -92,7 +100,7 @@ def compute_layouts(pango_context, width, body_font, blocks):
         lay.set_font_description(font)
         lay.set_width(tw * Pango.SCALE)
         lay.set_wrap(Pango.WrapMode.WORD_CHAR)
-        lay.set_text(block.text, -1)
+        lay.set_markup(runs_to_markup(tokenize_inline(block.text)), -1)
         _, ext = lay.get_pixel_extents()
         content_h = max(ext.height, body_line_h)
         block_h = content_h + TEXT_PAD * 2
@@ -145,7 +153,7 @@ def paint_blocks(cr, width, height, body_font, layouts, fg=FG, skip_text_for=Non
         layout.set_font_description(font)
         layout.set_width(bl.text_width * Pango.SCALE)
         layout.set_wrap(Pango.WrapMode.WORD_CHAR)
-        layout.set_text(block.text, -1)
+        layout.set_markup(runs_to_markup(tokenize_inline(block.text)), -1)
         cr.set_source_rgb(*fg)
         cr.move_to(bl.text_x, bl.y + TEXT_PAD)
         PangoCairo.show_layout(cr, layout)
@@ -196,18 +204,45 @@ class BlocksView(Gtk.Overlay):
             self._finish_editing()
         for bl in self.layouts:
             if bl.y <= event.y < bl.y + bl.height:
-                self._start_editing(bl)
+                cursor = self._cursor_from_click(bl, event.x, event.y)
+                self._start_editing(bl, cursor)
                 return True
         return False
 
-    def _start_editing(self, bl):
+    def _cursor_from_click(self, bl, click_x, click_y):
+        body_font = resolve_body_font(self.canvas)
+        font = _header_font_of(body_font) if bl.is_header else body_font
+
+        lay = Pango.Layout.new(self.canvas.get_pango_context())
+        lay.set_font_description(font)
+        lay.set_width(bl.text_width * Pango.SCALE)
+        lay.set_wrap(Pango.WrapMode.WORD_CHAR)
+        runs = tokenize_inline(bl.block.text)
+        lay.set_markup(runs_to_markup(runs), -1)
+
+        local_x = max(0, click_x - bl.text_x)
+        local_y = max(0, click_y - (bl.y + TEXT_PAD))
+        _, byte_idx, trailing = lay.xy_to_index(
+            int(local_x * Pango.SCALE), int(local_y * Pango.SCALE)
+        )
+
+        display_text = lay.get_text()
+        char_idx = display_char_from_byte(display_text, byte_idx) + trailing
+        char_idx = min(char_idx, len(display_text))
+        return source_offset_from_display(runs, char_idx)
+
+    def _start_editing(self, bl, cursor_source_idx=None):
         tv = Gtk.TextView()
         tv.set_wrap_mode(Gtk.WrapMode.WORD_CHAR)
         tv.set_left_margin(0)
         tv.set_right_margin(0)
         tv.set_top_margin(0)
         tv.set_bottom_margin(0)
-        tv.get_buffer().set_text(bl.block.text)
+        buf = tv.get_buffer()
+        buf.set_text(bl.block.text)
+        if cursor_source_idx is not None:
+            offset = max(0, min(cursor_source_idx, buf.get_char_count()))
+            buf.place_cursor(buf.get_iter_at_offset(offset))
         tv.connect("focus-out-event", self._on_edit_focus_out)
 
         self.editing_block = bl.block

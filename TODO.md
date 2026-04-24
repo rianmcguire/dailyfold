@@ -13,9 +13,9 @@ Everything we've discussed but haven't built yet. Grouped roughly in order of wh
 
 ## Markdown rendering
 
-- **Render inline markdown for non-focused blocks** — bold, italic, code via Pango markup to start. Links and code blocks later.
-- **Rendered → source character mapping** — when user clicks inside rendered text (`**bold**` display), the TextView must open with the cursor at the equivalent source offset. Build the Pango markup with an offset map alongside it; use `Pango.Layout.xy_to_index` then translate.
-- **Markdown parser** — pick one (mistune, markdown-it-py, or hand-rolled inline parser — we may only need inline for v1). Block-level parsing is irrelevant since each Block is its own unit.
+- **More inline syntax** — links `[text](url)`, autolinks, strikethrough, backslash escapes. Current parser handles `**bold**`, `*italic*`, `` `code` ``; no nesting.
+- **Code styling** — `<tt>` gets monospace but no background; once we have theme-aware colors, give code a subtle bg.
+- **File-format parser** — parsing a whole `YYYY-MM-DD.md` into the `Block(level, text)` tree (nested bullets via indentation) is the other place markdown shows up. Re-evaluate `markdown-it-py` here when we build the loader; its token stream + line maps suit block parsing better than hand-rolling.
 
 ## Polish / known issues
 
