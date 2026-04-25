@@ -188,13 +188,13 @@ def paint_blocks(
             cr.set_source_rgb(*GUIDE)
             cr.set_line_width(1)
             for g in range(1, block.level + 1):
-                gxi = X0 + g * INDENT - INDENT // 2
+                gxi = X0 + (g - 1) * INDENT + 5
                 cr.move_to(gxi + 0.5, bl.y)
                 cr.line_to(gxi + 0.5, bl.y + bl.height)
                 cr.stroke()
 
         cr.set_source_rgb(*DIM)
-        bullet_x = X0 + block.level * INDENT + 5
+        bullet_x = X0 + block.level * INDENT + 5.5
         bullet_y = bl.y + TEXT_PAD + body_line_h / 2
         cr.arc(bullet_x, bullet_y, 2.5, 0, 2 * 3.14159)
         cr.fill()
