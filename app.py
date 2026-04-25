@@ -695,8 +695,10 @@ class BlocksView(Gtk.Overlay):
         left = block.text[:offset]
         right = block.text[offset:]
 
-        new_block = Block(level=block.level, text=right)
-        insert_idx = self._subtree_end(b)
+        has_children = self._subtree_end(b) > b + 1
+        new_level = block.level + 1 if has_children else block.level
+        insert_idx = b + 1
+        new_block = Block(level=new_level, text=right)
         self.blocks.insert(insert_idx, new_block)
 
         self._suppress_text_snapshot = True

@@ -21,7 +21,6 @@ Everything we've discussed but haven't built yet. Grouped roughly in order of wh
 
 - **indent lines should be aligned with bullets**
 - **shift+up/down into block selection** - if you're on the top/bottom line of a block, shift+up/down should be equilvalent to alt+up/down and select the whole block. otherwise it should have normal multi-line TextView behaviour.
-- enter split if you have a child should create a new child before the current one, rather than creating a sibling
 
 ## Persistence / journaling (the actual app)
 
