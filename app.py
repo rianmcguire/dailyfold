@@ -269,16 +269,37 @@ class BlocksView(Gtk.Overlay):
         return False
 
     def _on_click(self, widget, event):
+        state = event.state & Gtk.accelerator_get_default_mod_mask()
+        target_bl = None
+        for bl in self.layouts:
+            if bl.y <= event.y < bl.y + bl.height:
+                target_bl = bl
+                break
+
+        if state == Gdk.ModifierType.SHIFT_MASK and target_bl is not None:
+            target_idx = self._block_index(target_bl.block)
+            if self.editing_block is not None:
+                anchor_idx = self._block_index(self.editing_block)
+                self._finish_editing()
+                self.selection = (anchor_idx, target_idx)
+                self.canvas.grab_focus()
+                self.canvas.queue_draw()
+                return True
+            if self.selection is not None:
+                anchor, _ = self.selection
+                self.selection = (anchor, target_idx)
+                self.canvas.queue_draw()
+                return True
+
         if self.edit_view is not None:
             self._finish_editing()
         if self.selection is not None:
             self.selection = None
             self.canvas.queue_draw()
-        for bl in self.layouts:
-            if bl.y <= event.y < bl.y + bl.height:
-                cursor = self._cursor_from_click(bl, event.x, event.y)
-                self._start_editing(bl, cursor)
-                return True
+        if target_bl is not None:
+            cursor = self._cursor_from_click(target_bl, event.x, event.y)
+            self._start_editing(target_bl, cursor)
+            return True
         return False
 
     def _cursor_from_click(self, bl, click_x, click_y):
@@ -378,6 +399,12 @@ class BlocksView(Gtk.Overlay):
             Gdk.KEY_Down,
         ):
             return self._enter_selection_mode()
+        if (
+            state == Gdk.ModifierType.MOD1_MASK | Gdk.ModifierType.SHIFT_MASK
+        ) and event.keyval in (Gdk.KEY_Up, Gdk.KEY_Down):
+            return self._handle_move_block_in_edit(
+                +1 if event.keyval == Gdk.KEY_Down else -1
+            )
         self.desired_col = None
         return False
 
@@ -469,32 +496,77 @@ class BlocksView(Gtk.Overlay):
             end += 1
         return end
 
+    def _shift_levels(self, start, end, shift):
+        if shift:
+            if any(self.blocks[i].level < 1 for i in range(start, end)):
+                return False
+            delta = -1
+        else:
+            prev_sibling = None
+            for i in range(start - 1, -1, -1):
+                if self.blocks[i].level < self.blocks[start].level:
+                    break
+                if self.blocks[i].level == self.blocks[start].level:
+                    prev_sibling = i
+                    break
+            if prev_sibling is None:
+                return False
+            delta = 1
+        for i in range(start, end):
+            self.blocks[i].level += delta
+        return True
+
     def _handle_tab(self, shift):
         if self.editing_block is None:
             return False
         b = self._block_index(self.editing_block)
-        block = self.editing_block
+        if self._shift_levels(b, self._subtree_end(b), shift):
+            self.canvas.queue_draw()
+            self.queue_resize()
+        return True
 
-        if shift:
-            if block.level <= 0:
-                return True
-            delta = -1
+    def _move_range(self, start, end, direction):
+        n = len(self.blocks)
+        if direction > 0:
+            if end >= n:
+                return None
+            target_start = end
+            target_end = self._subtree_end(end)
+            dest_level = self.blocks[end].level
         else:
-            prev_sibling = None
-            for i in range(b - 1, -1, -1):
-                if self.blocks[i].level < block.level:
-                    break
-                if self.blocks[i].level == block.level:
-                    prev_sibling = i
-                    break
-            if prev_sibling is None:
-                return True
-            delta = 1
+            if start == 0:
+                return None
+            target_start = start - 1
+            while (
+                target_start > 0
+                and self.blocks[target_start].level > self.blocks[start].level
+            ):
+                target_start -= 1
+            if self.blocks[target_start].level > self.blocks[start].level:
+                return None
+            target_end = start
+            dest_level = self.blocks[target_start].level
 
-        end = self._subtree_end(b)
-        for i in range(b, end):
-            self.blocks[i].level += delta
+        delta = dest_level - self.blocks[start].level
+        for i in range(start, end):
+            self.blocks[i].level = max(self.blocks[i].level + delta, dest_level)
 
+        moved = self.blocks[start:end]
+        target = self.blocks[target_start:target_end]
+        if direction > 0:
+            self.blocks[start:target_end] = target + moved
+            new_start = start + len(target)
+        else:
+            self.blocks[target_start:end] = moved + target
+            new_start = target_start
+        return (new_start, new_start + len(moved))
+
+    def _handle_move_block_in_edit(self, direction):
+        if self.editing_block is None:
+            return False
+        b = self._block_index(self.editing_block)
+        if self._move_range(b, self._subtree_end(b), direction) is None:
+            return True
         self.canvas.queue_draw()
         self.queue_resize()
         return True
@@ -608,6 +680,10 @@ class BlocksView(Gtk.Overlay):
                 self.selection = None
                 self.canvas.queue_draw()
                 return True
+            if event.keyval == Gdk.KEY_Tab:
+                return self._handle_selection_indent(shift=False)
+            if event.keyval in (Gdk.KEY_BackSpace, Gdk.KEY_Delete):
+                return self._handle_selection_delete()
 
         if state in (Gdk.ModifierType.SHIFT_MASK, Gdk.ModifierType.MOD1_MASK):
             if event.keyval == Gdk.KEY_Up:
@@ -619,7 +695,63 @@ class BlocksView(Gtk.Overlay):
                 self.canvas.queue_draw()
                 return True
 
+        if state == Gdk.ModifierType.SHIFT_MASK and event.keyval in (
+            Gdk.KEY_Tab,
+            Gdk.KEY_ISO_Left_Tab,
+        ):
+            return self._handle_selection_indent(shift=True)
+
+        if (
+            state == Gdk.ModifierType.MOD1_MASK | Gdk.ModifierType.SHIFT_MASK
+        ) and event.keyval in (Gdk.KEY_Up, Gdk.KEY_Down):
+            return self._handle_move_selection(
+                +1 if event.keyval == Gdk.KEY_Down else -1
+            )
+
         return False
+
+    def _handle_selection_indent(self, shift):
+        if self.selection is None:
+            return False
+        indices = self._selection_indices()
+        start, end = indices[0], indices[-1] + 1
+        if self._shift_levels(start, end, shift):
+            self.canvas.queue_draw()
+        return True
+
+    def _handle_selection_delete(self):
+        if self.selection is None:
+            return False
+        indices = self._selection_indices()
+        start, end = indices[0], indices[-1] + 1
+        del self.blocks[start:end]
+        self.selection = None
+        if not self.blocks:
+            self.canvas.queue_draw()
+            return True
+        if start > 0:
+            target_idx = start - 1
+            target = self.blocks[target_idx]
+            lines = target.text.split("\n")
+            self._move_to_block(target_idx, len(lines) - 1, len(lines[-1]))
+        else:
+            self._move_to_block(0, 0, 0)
+        return True
+
+    def _handle_move_selection(self, direction):
+        if self.selection is None:
+            return False
+        indices = self._selection_indices()
+        start, end = indices[0], indices[-1] + 1
+        anchor, head = self.selection
+        result = self._move_range(start, end, direction)
+        if result is None:
+            return True
+        new_start, _ = result
+        delta = new_start - start
+        self.selection = (anchor + delta, head + delta)
+        self.canvas.queue_draw()
+        return True
 
     def _exit_selection_to_edit(self, at_end):
         indices = self._selection_indices()
