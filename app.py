@@ -411,6 +411,19 @@ class BlocksView(Gtk.Overlay):
             Gdk.KEY_ISO_Left_Tab,
         ):
             return self._handle_tab(shift=True)
+        if state == Gdk.ModifierType.SHIFT_MASK and event.keyval in (
+            Gdk.KEY_Up,
+            Gdk.KEY_Down,
+        ):
+            _, l, _ = self._current_position()
+            at_top = event.keyval == Gdk.KEY_Up and l == 0
+            at_bottom = (
+                event.keyval == Gdk.KEY_Down
+                and l == self.editing_block.text.count("\n")
+            )
+            if at_top or at_bottom:
+                return self._enter_selection_mode()
+            return False
         if state == Gdk.ModifierType.MOD1_MASK and event.keyval in (
             Gdk.KEY_Up,
             Gdk.KEY_Down,

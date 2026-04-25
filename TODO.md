@@ -17,10 +17,6 @@ Everything we've discussed but haven't built yet. Grouped roughly in order of wh
 - **Code styling** — `<tt>` gets monospace but no background; once we have theme-aware colors, give code a subtle bg.
 - **File-format parser** — parsing a whole `YYYY-MM-DD.md` into the `Block(level, text)` tree (nested bullets via indentation) is the other place markdown shows up. Re-evaluate `markdown-it-py` here when we build the loader; its token stream + line maps suit block parsing better than hand-rolling.
 
-## Polish / known issues
-
-- **shift+up/down into block selection** - if you're on the top/bottom line of a block, shift+up/down should be equilvalent to alt+up/down and select the whole block. otherwise it should have normal multi-line TextView behaviour.
-
 ## Persistence / journaling (the actual app)
 
 We are a "daily journal" but have none of this yet:
