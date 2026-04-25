@@ -9,6 +9,7 @@ Everything we've discussed but haven't built yet. Grouped roughly in order of wh
 - **Undo/redo** — global stack across both text edits and structural changes (Enter-split, Backspace-join, Tab-indent, move, delete). GTK's per-TextView undo isn't enough: the buffer is discarded on block switch and structural ops aren't tracked at all. Design note: probably an operation log (insert-block, delete-block, set-text, set-level, move-block) with inverse ops; coalesce adjacent text edits within a single block into one entry. Ctrl+Z / Ctrl+Shift+Z (or Ctrl+Y).
 - **Multi-line code blocks** - triple backtick. Introduces a new editing mode while inside the block.
 - **Select all** - ctrl-a selected the current textview, then expands to the current block and it's children, then additional presses expand to its parent
+- **Clipboard** - we should be able to cut/copy/paste block(s), both for internal reorganization and external consumption
 
 ## Markdown rendering
 
@@ -20,6 +21,7 @@ Everything we've discussed but haven't built yet. Grouped roughly in order of wh
 
 - **indent lines should be aligned with bullets**
 - **shift+up/down into block selection** - if you're on the top/bottom line of a block, shift+up/down should be equilvalent to alt+up/down and select the whole block. otherwise it should have normal multi-line TextView behaviour.
+- enter split if you have a child should create a new child before the current one, rather than creating a sibling
 
 ## Persistence / journaling (the actual app)
 

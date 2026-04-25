@@ -11,6 +11,7 @@ gi.require_version("Gdk", "3.0")
 gi.require_version("PangoCairo", "1.0")
 from gi.repository import Gdk, GLib, Gtk, Pango, PangoCairo
 
+from history import History
 from markdown import (
     display_char_from_byte,
     runs_to_markup,
@@ -221,6 +222,9 @@ class BlocksView(Gtk.Overlay):
         self.edit_view = None
         self.desired_col = None
         self.selection = None
+        self.history = History(cap=1000)
+        self._coalesce_timer_id = None
+        self._suppress_text_snapshot = False
 
         self.canvas = Gtk.DrawingArea()
         self.canvas.set_can_focus(True)
@@ -335,6 +339,8 @@ class BlocksView(Gtk.Overlay):
         if cursor_source_idx is not None:
             offset = max(0, min(cursor_source_idx, buf.get_char_count()))
             buf.place_cursor(buf.get_iter_at_offset(offset))
+        buf.connect("insert-text", self._commit_text_edit)
+        buf.connect("delete-range", self._commit_text_edit)
         buf.connect("changed", self._on_buffer_changed)
         tv.connect("focus-out-event", self._on_edit_focus_out)
         tv.connect("key-press-event", self._on_key_press)
@@ -370,9 +376,20 @@ class BlocksView(Gtk.Overlay):
         self.editing_block.text = buf.get_text(start, end, True)
         self.canvas.queue_draw()
         self.queue_resize()
+        if not self._suppress_text_snapshot:
+            self._reset_coalesce_timer()
 
     def _on_key_press(self, tv, event):
         state = event.state & Gtk.accelerator_get_default_mod_mask()
+        if state == Gdk.ModifierType.CONTROL_MASK and event.keyval in (
+            Gdk.KEY_z,
+            Gdk.KEY_Z,
+        ):
+            return self._do_undo()
+        if (
+            state == Gdk.ModifierType.CONTROL_MASK | Gdk.ModifierType.SHIFT_MASK
+        ) and event.keyval in (Gdk.KEY_z, Gdk.KEY_Z):
+            return self._do_redo()
         if state == 0:
             if event.keyval == Gdk.KEY_Up:
                 return self._handle_up()
@@ -407,6 +424,87 @@ class BlocksView(Gtk.Overlay):
             )
         self.desired_col = None
         return False
+
+    def _capture_cursor(self):
+        if self.editing_block is not None:
+            idx, line, col = self._current_position()
+            return ("edit", idx, line, col)
+        if self.selection is not None:
+            return ("selection", self.selection[0], self.selection[1])
+        return None
+
+    def _begin_structural(self):
+        return ([Block(b.level, b.text) for b in self.blocks], self._capture_cursor())
+
+    def _end_structural(self, pre):
+        self._cancel_coalesce_timer()
+        pre_blocks, pre_cursor = pre
+        self.history.commit_structural(pre_blocks, pre_cursor)
+
+    def _commit_text_edit(self, *_):
+        if self._suppress_text_snapshot or self.editing_block is None:
+            return
+        idx = self._block_index(self.editing_block)
+        self.history.commit_text(self.blocks, self._capture_cursor(), idx)
+
+    def _cancel_coalesce_timer(self):
+        if self._coalesce_timer_id is not None:
+            GLib.source_remove(self._coalesce_timer_id)
+            self._coalesce_timer_id = None
+
+    def _reset_coalesce_timer(self):
+        self._cancel_coalesce_timer()
+        self._coalesce_timer_id = GLib.timeout_add(1000, self._on_coalesce_timeout)
+
+    def _on_coalesce_timeout(self):
+        self._coalesce_timer_id = None
+        self.history.break_coalesce()
+        return GLib.SOURCE_REMOVE
+
+    def _do_undo(self):
+        if not self.history.undo_stack:
+            return True
+        cursor = self._capture_cursor()
+        if self.edit_view is not None:
+            self._finish_editing()
+        self.selection = None
+        snap = self.history.undo(self.blocks, cursor)
+        self._cancel_coalesce_timer()
+        self.blocks[:] = snap.blocks
+        self._restore_cursor(snap.cursor)
+        return True
+
+    def _do_redo(self):
+        if not self.history.redo_stack:
+            return True
+        cursor = self._capture_cursor()
+        if self.edit_view is not None:
+            self._finish_editing()
+        self.selection = None
+        snap = self.history.redo(self.blocks, cursor)
+        self._cancel_coalesce_timer()
+        self.blocks[:] = snap.blocks
+        self._restore_cursor(snap.cursor)
+        return True
+
+    def _restore_cursor(self, cursor):
+        if not self.blocks or cursor is None:
+            self.canvas.queue_draw()
+            self.queue_resize()
+            return
+        kind = cursor[0]
+        if kind == "selection":
+            _, anchor, head = cursor
+            n = len(self.blocks)
+            self.selection = (max(0, min(anchor, n - 1)), max(0, min(head, n - 1)))
+            self.canvas.grab_focus()
+            self.canvas.queue_draw()
+            self.queue_resize()
+            return
+        if kind == "edit":
+            _, idx, line, col = cursor
+            idx = max(0, min(idx, len(self.blocks) - 1))
+            self._move_to_block(idx, line, col)
 
     def _block_index(self, block):
         for i, b in enumerate(self.blocks):
@@ -520,7 +618,9 @@ class BlocksView(Gtk.Overlay):
         if self.editing_block is None:
             return False
         b = self._block_index(self.editing_block)
+        pre = self._begin_structural()
         if self._shift_levels(b, self._subtree_end(b), shift):
+            self._end_structural(pre)
             self.canvas.queue_draw()
             self.queue_resize()
         return True
@@ -575,8 +675,10 @@ class BlocksView(Gtk.Overlay):
         if self.editing_block is None:
             return False
         b = self._block_index(self.editing_block)
+        pre = self._begin_structural()
         if self._move_range(b, self._subtree_end(b), direction) is None:
             return True
+        self._end_structural(pre)
         self.canvas.queue_draw()
         self.queue_resize()
         return True
@@ -584,6 +686,7 @@ class BlocksView(Gtk.Overlay):
     def _handle_enter(self):
         if self.editing_block is None:
             return False
+        pre = self._begin_structural()
         b = self._block_index(self.editing_block)
         block = self.editing_block
 
@@ -596,7 +699,13 @@ class BlocksView(Gtk.Overlay):
         insert_idx = self._subtree_end(b)
         self.blocks.insert(insert_idx, new_block)
 
-        buf.set_text(left)
+        self._suppress_text_snapshot = True
+        try:
+            buf.set_text(left)
+        finally:
+            self._suppress_text_snapshot = False
+
+        self._end_structural(pre)
         self._move_to_block(insert_idx, 0, 0)
         return True
 
@@ -607,6 +716,7 @@ class BlocksView(Gtk.Overlay):
         if b <= 0 or l != 0 or c != 0:
             return False
 
+        pre = self._begin_structural()
         prev = self.blocks[b - 1]
 
         block = self.editing_block
@@ -622,6 +732,7 @@ class BlocksView(Gtk.Overlay):
         prev.text = prev.text + block.text
         del self.blocks[b]
 
+        self._end_structural(pre)
         self._move_to_block(b - 1, join_line, join_col)
         return True
 
@@ -661,9 +772,18 @@ class BlocksView(Gtk.Overlay):
         return True
 
     def _on_canvas_key_press(self, widget, event):
+        state = event.state & Gtk.accelerator_get_default_mod_mask()
+        if state == Gdk.ModifierType.CONTROL_MASK and event.keyval in (
+            Gdk.KEY_z,
+            Gdk.KEY_Z,
+        ):
+            return self._do_undo()
+        if (
+            state == Gdk.ModifierType.CONTROL_MASK | Gdk.ModifierType.SHIFT_MASK
+        ) and event.keyval in (Gdk.KEY_z, Gdk.KEY_Z):
+            return self._do_redo()
         if self.selection is None:
             return False
-        state = event.state & Gtk.accelerator_get_default_mod_mask()
         anchor, head = self.selection
         n = len(self.blocks)
         if n == 0:
@@ -725,7 +845,9 @@ class BlocksView(Gtk.Overlay):
             return False
         indices = self._selection_indices()
         start, end = indices[0], indices[-1] + 1
+        pre = self._begin_structural()
         if self._shift_levels(start, end, shift):
+            self._end_structural(pre)
             self.canvas.queue_draw()
         return True
 
@@ -734,8 +856,10 @@ class BlocksView(Gtk.Overlay):
             return False
         indices = self._selection_indices()
         start, end = indices[0], indices[-1] + 1
+        pre = self._begin_structural()
         del self.blocks[start:end]
         self.selection = None
+        self._end_structural(pre)
         if not self.blocks:
             self.canvas.queue_draw()
             return True
@@ -754,9 +878,11 @@ class BlocksView(Gtk.Overlay):
         indices = self._selection_indices()
         start, end = indices[0], indices[-1] + 1
         anchor, head = self.selection
+        pre = self._begin_structural()
         result = self._move_range(start, end, direction)
         if result is None:
             return True
+        self._end_structural(pre)
         new_start, _ = result
         delta = new_start - start
         self.selection = (anchor + delta, head + delta)
