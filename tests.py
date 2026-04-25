@@ -112,11 +112,44 @@ class TestMoveRange(unittest.TestCase):
             [(0, "X"), (1, "C"), (1, "A"), (2, "B")],
         )
 
-    def test_move_down_at_parent_boundary_tunnels_out(self):
-        # X / A(L1)   Y(L0)  →  X   Y   A(L0)  (A adopts Y's level)
+    def test_move_down_single_subtree_preserves_level_becomes_child(self):
+        # Single-subtree move preserves indent; A nests under Y rather than
+        # outdenting to Y's level.
         v = view((0, "X"), (1, "A"), (0, "Y"))
         self.assertEqual(v._move_range(1, 2, +1), (2, 3))
-        self.assertEqual(shape(v), [(0, "X"), (0, "Y"), (0, "A")])
+        self.assertEqual(shape(v), [(0, "X"), (0, "Y"), (1, "A")])
+
+    def test_move_down_users_example_y_becomes_child_of_v(self):
+        # X / Z W Y   V   →   X / Z W   V / Y
+        v = view((0, "X"), (1, "Z"), (1, "W"), (1, "Y"), (0, "V"))
+        self.assertEqual(v._move_range(3, 4, +1), (4, 5))
+        self.assertEqual(
+            shape(v),
+            [(0, "X"), (1, "Z"), (1, "W"), (0, "V"), (1, "Y")],
+        )
+
+    def test_move_down_single_subtree_with_descendants_preserves_shape(self):
+        # X / Y / Z   V   →   X   V / Y / Z   (whole subtree slots under V)
+        v = view((0, "X"), (1, "Y"), (2, "Z"), (0, "V"))
+        self.assertEqual(v._move_range(1, 3, +1), (2, 4))
+        self.assertEqual(
+            shape(v),
+            [(0, "X"), (0, "V"), (1, "Y"), (2, "Z")],
+        )
+
+    def test_move_down_single_block_refused_when_level_skip(self):
+        # Y at L2 cannot land directly under V at L0 (would skip L1) → no-op
+        v = view((0, "X"), (1, "M"), (2, "Y"), (0, "V"))
+        self.assertIsNone(v._move_range(2, 3, +1))
+        self.assertEqual(
+            shape(v),
+            [(0, "X"), (1, "M"), (2, "Y"), (0, "V")],
+        )
+
+    def test_move_up_single_block_refused_at_doc_top(self):
+        # First-child Y(L1) at idx 1 would land at idx 0 with no L0 above → no-op
+        v = view((0, "X"), (1, "Y"))
+        self.assertIsNone(v._move_range(1, 2, -1))
 
     def test_move_down_cross_level_selection_drops_to_destination(self):
         # X / Y Z / W   V   →   X   V   Y Z W   (Y, Z clamp up to dest L0)
@@ -144,13 +177,22 @@ class TestMoveRange(unittest.TestCase):
         v = view((0, "A"), (0, "B"))
         self.assertIsNone(v._move_range(1, 2, +1))
 
-    def test_iterative_move_up_walks_deep_block_to_root(self):
-        # X / Y / Z  → step → X / Z Y  → step → Z   X / Y
+    def test_move_up_single_subtree_refused_when_level_skip(self):
+        # Z(L2) move-up would land between X(L0) and Y(L1) — skip L0→L2 → no-op.
+        # User must Shift+Tab Z first to outdent, then move.
         v = view((0, "X"), (1, "Y"), (2, "Z"))
-        v._move_range(2, 3, -1)
-        self.assertEqual(shape(v), [(0, "X"), (1, "Z"), (1, "Y")])
-        v._move_range(1, 2, -1)
-        self.assertEqual(shape(v), [(0, "Z"), (0, "X"), (1, "Y")])
+        self.assertIsNone(v._move_range(2, 3, -1))
+        self.assertEqual(shape(v), [(0, "X"), (1, "Y"), (2, "Z")])
+
+    def test_move_down_multi_block_uses_clamp_rule(self):
+        # Range [1..4) covers A, B, C — but C is NOT in A's subtree, so this is
+        # a multi-block range and the clamp rule (not preserve) applies.
+        v = view((0, "X"), (1, "A"), (2, "B"), (0, "C"), (0, "D"))
+        self.assertEqual(v._move_range(1, 4, +1), (2, 5))
+        self.assertEqual(
+            shape(v),
+            [(0, "X"), (0, "D"), (0, "A"), (1, "B"), (0, "C")],
+        )
 
 
 if __name__ == "__main__":

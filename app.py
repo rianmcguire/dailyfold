@@ -547,9 +547,19 @@ class BlocksView(Gtk.Overlay):
             target_end = start
             dest_level = self.blocks[target_start].level
 
-        delta = dest_level - self.blocks[start].level
-        for i in range(start, end):
-            self.blocks[i].level = max(self.blocks[i].level + delta, dest_level)
+        if end == self._subtree_end(start):
+            if direction > 0:
+                prev_level = self.blocks[target_end - 1].level
+            else:
+                prev_level = (
+                    self.blocks[target_start - 1].level if target_start > 0 else -1
+                )
+            if self.blocks[start].level > prev_level + 1:
+                return None
+        else:
+            delta = dest_level - self.blocks[start].level
+            for i in range(start, end):
+                self.blocks[i].level = max(self.blocks[i].level + delta, dest_level)
 
         moved = self.blocks[start:end]
         target = self.blocks[target_start:target_end]
