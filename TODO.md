@@ -9,6 +9,7 @@ Everything we've discussed but haven't built yet. Grouped roughly in order of wh
 - **Select all** - ctrl-a selected the current textview, then expands to the current block and it's children, then additional presses expand to its parent
 - **Clipboard** - we should be able to cut/copy/paste block(s), both for internal reorganization and external consumption
 - **Double click to select word** - when not focused. Logseq sort of achieves this, but it's tricky.
+- **More advanced multi-line code editing** - tab intent/unindent, auto-indent, syntax highlighting. consider enriching TextView vs dropping in GtkSource.View
 
 ## Markdown rendering
 
@@ -22,6 +23,7 @@ We are a "daily journal" but have none of this yet:
 
 - **Scrolling**
 - **File format** — markdown on disk, one file per day (`YYYY-MM-DD.md`), nested bullets via indentation. Must load the user's existing Logseq files; follow Logseq conventions over CommonMark where they differ. Known divergence: a bare `\n` inside a block is a hard line break in Logseq (serialized as plain `\n`, no trailing `  ` or `\\`), not a CommonMark soft break. Test rendering + round-trip against real Logseq files.
+  - blocks with multi-line code blocks can't have other content. the loader should handle this and split the input if needed
 - **Storage location** — configurable; default to something like `~/Documents/dailyfold/` or XDG data dir.
 - **Load on startup** — today's file, or most recent.
 - **Save on edit** — debounced write on every change; no explicit save action.
