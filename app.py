@@ -231,7 +231,12 @@ def paint_blocks(
             cr.fill()
         elif block.code_lang is not None:
             cr.set_source_rgb(*CODE_BG)
-            cr.rectangle(bl.text_x - TEXT_PAD, bl.y, width - (bl.text_x - TEXT_PAD), bl.height)
+            cr.rectangle(
+                bl.text_x - TEXT_PAD,
+                bl.y + 2,
+                width - (bl.text_x - TEXT_PAD),
+                bl.height - 4,
+            )
             cr.fill()
 
         if block.level > 0:
