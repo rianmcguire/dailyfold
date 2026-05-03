@@ -6,7 +6,6 @@ Everything we've discussed but haven't built yet. Grouped roughly in order of wh
 
 - **Folding** — collapse/expand a block's descendants. Toggle via click on bullet (bullet style changes to indicate collapsed state) and/or keyboard (Logseq uses Tab on a non-editing block, or a dedicated shortcut — pick one that doesn't collide with indent). Navigation (↑/↓) should skip over hidden descendants. Selecting/moving/deleting a folded block acts on the whole subtree. Persistence: two options worth weighing — (a) Logseq-compatible `collapsed:: true` block property, which round-trips folds through shared files but adds visible noise to the `.md`; (b) a sidecar (JSON next to each day's file, or single file in XDG state dir) that keeps the markdown clean but means folds don't survive Logseq edits of the same file. Could also do both: read/write `collapsed::` when present, fall back to sidecar otherwise.
 - **TODO/DONE checkboxes** — Logseq-style block task state: a block prefixed with `TODO ` or `DONE ` renders with a checkbox (unchecked / checked); clicking the checkbox or a keyboard shortcut (Logseq uses Ctrl+Enter to cycle) toggles between `TODO` ↔ `DONE`, or cycles through more states (`LATER`, `NOW`, `DOING`, `WAITING`, `CANCELED`) if we grow the set. The prefix lives in the markdown source so it round-trips through Logseq. Scope question for v1: just TODO/DONE, or the full Logseq set? Rendering: preserve the literal `TODO ` / `DONE ` prefix in the view (so what you see matches the source), but style it — e.g. a colored badge / pill, strikethrough for DONE, dimmed text for the body of a DONE block.
-- **Multi-line code blocks** - triple backtick. Introduces a new editing mode while inside the block.
 - **Select all** - ctrl-a selected the current textview, then expands to the current block and it's children, then additional presses expand to its parent
 - **Clipboard** - we should be able to cut/copy/paste block(s), both for internal reorganization and external consumption
 - **Double click to select word** - when not focused. Logseq sort of achieves this, but it's tricky.
@@ -21,6 +20,7 @@ Everything we've discussed but haven't built yet. Grouped roughly in order of wh
 
 We are a "daily journal" but have none of this yet:
 
+- **Scrolling**
 - **File format** — markdown on disk, one file per day (`YYYY-MM-DD.md`), nested bullets via indentation. Must load the user's existing Logseq files; follow Logseq conventions over CommonMark where they differ. Known divergence: a bare `\n` inside a block is a hard line break in Logseq (serialized as plain `\n`, no trailing `  ` or `\\`), not a CommonMark soft break. Test rendering + round-trip against real Logseq files.
 - **Storage location** — configurable; default to something like `~/Documents/dailyfold/` or XDG data dir.
 - **Load on startup** — today's file, or most recent.

@@ -1,5 +1,6 @@
 import argparse
 import os
+import re
 import signal
 from dataclasses import dataclass
 
@@ -25,6 +26,14 @@ FG = (0.13, 0.13, 0.13)
 DIM = (0.55, 0.55, 0.57)
 GUIDE = (0.87, 0.87, 0.89)
 SELECTION_BG = (0.83, 0.90, 0.99)
+CODE_BG = (0xfd / 255, 0xf6 / 255, 0xe3 / 255)
+CODE_BG_CSS = b"""
+textview.code-block, textview.code-block text {
+    background-color: #fdf6e3;
+}
+"""
+
+CODE_FENCE_RE = re.compile(r"^```([a-zA-Z0-9_+\-]*)$")
 
 X0 = 32
 INDENT = 22
@@ -39,6 +48,7 @@ RIGHT_PAD = 16
 class Block:
     level: int
     text: str
+    code_lang: str | None = None
 
 
 @dataclass
@@ -70,6 +80,8 @@ BLOCKS = [
     Block(0, "inline markdown: **bold**, *italic*, `code`"),
     Block(0, "multi-line block\n(shift+enter later; for now any \\n in text)\nrenders across lines"),
     Block(1, "styling **carries**\nacross *line* breaks too"),
+    Block(0, "fenced code block:"),
+    Block(1, "def hello(name):\n    print(f\"hello, {name}\")", code_lang="python"),
 ]
 
 
@@ -87,6 +99,34 @@ def _header_font_of(body_font):
     hf.set_size(int(size * 1.3))
     hf.set_weight(Pango.Weight.BOLD)
     return hf
+
+
+def _code_font_of(body_font):
+    cf = body_font.copy()
+    cf.set_family("monospace")
+    return cf
+
+
+_CODE_CSS_PROVIDER = None
+
+
+def _code_css_provider():
+    global _CODE_CSS_PROVIDER
+    if _CODE_CSS_PROVIDER is None:
+        p = Gtk.CssProvider()
+        p.load_from_data(CODE_BG_CSS)
+        _CODE_CSS_PROVIDER = p
+    return _CODE_CSS_PROVIDER
+
+
+def _apply_code_textview_style(tv, on):
+    ctx = tv.get_style_context()
+    if on:
+        ctx.add_class("code-block")
+        ctx.add_provider(_code_css_provider(), Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION)
+    else:
+        ctx.remove_class("code-block")
+        ctx.remove_provider(_code_css_provider())
 
 
 def compute_layouts(pango_context, width, body_font, header_text, blocks):
@@ -117,16 +157,21 @@ def compute_layouts(pango_context, width, body_font, header_text, blocks):
     )
     y += header_layout.height + HEADER_GAP
 
+    code_font = _code_font_of(body_font)
     layouts = []
     for block in blocks:
         tx = X0 + block.level * INDENT + BULLET_GAP
         tw = max(1, width - tx - RIGHT_PAD)
 
         lay = Pango.Layout.new(pango_context)
-        lay.set_font_description(body_font)
         lay.set_width(tw * Pango.SCALE)
         lay.set_wrap(Pango.WrapMode.WORD_CHAR)
-        lay.set_markup(runs_to_markup(tokenize_inline(block.text)), -1)
+        if block.code_lang is not None:
+            lay.set_font_description(code_font)
+            lay.set_text(block.text, -1)
+        else:
+            lay.set_font_description(body_font)
+            lay.set_markup(runs_to_markup(tokenize_inline(block.text)), -1)
         _, ext = lay.get_pixel_extents()
         content_h = max(ext.height, body_line_h)
         block_h = content_h + TEXT_PAD * 2
@@ -161,6 +206,7 @@ def paint_blocks(
 
     layout = PangoCairo.create_layout(cr)
     header_font = _header_font_of(body_font)
+    code_font = _code_font_of(body_font)
 
     sample = Pango.Layout.new(layout.get_context())
     sample.set_font_description(body_font)
@@ -183,6 +229,10 @@ def paint_blocks(
             cr.set_source_rgb(*SELECTION_BG)
             cr.rectangle(0, bl.y, width, bl.height)
             cr.fill()
+        elif block.code_lang is not None:
+            cr.set_source_rgb(*CODE_BG)
+            cr.rectangle(bl.text_x - TEXT_PAD, bl.y, width - (bl.text_x - TEXT_PAD), bl.height)
+            cr.fill()
 
         if block.level > 0:
             cr.set_source_rgb(*GUIDE)
@@ -202,10 +252,15 @@ def paint_blocks(
         if block is skip_text_for:
             continue
 
-        layout.set_font_description(body_font)
         layout.set_width(bl.text_width * Pango.SCALE)
         layout.set_wrap(Pango.WrapMode.WORD_CHAR)
-        layout.set_markup(runs_to_markup(tokenize_inline(block.text)), -1)
+        if block.code_lang is not None:
+            layout.set_font_description(code_font)
+            layout.set_attributes(Pango.AttrList())
+            layout.set_text(block.text, -1)
+        else:
+            layout.set_font_description(body_font)
+            layout.set_markup(runs_to_markup(tokenize_inline(block.text)), -1)
         cr.set_source_rgb(*fg)
         cr.move_to(bl.text_x, bl.y + TEXT_PAD)
         PangoCairo.show_layout(cr, layout)
@@ -319,13 +374,19 @@ class BlocksView(Gtk.Overlay):
 
     def _cursor_from_click(self, bl, click_x, click_y):
         body_font = resolve_body_font(self.canvas)
+        block = bl.block
 
         lay = Pango.Layout.new(self.canvas.get_pango_context())
-        lay.set_font_description(body_font)
         lay.set_width(bl.text_width * Pango.SCALE)
         lay.set_wrap(Pango.WrapMode.WORD_CHAR)
-        runs = tokenize_inline(bl.block.text)
-        lay.set_markup(runs_to_markup(runs), -1)
+        if block.code_lang is not None:
+            lay.set_font_description(_code_font_of(body_font))
+            lay.set_text(block.text, -1)
+            runs = None
+        else:
+            lay.set_font_description(body_font)
+            runs = tokenize_inline(block.text)
+            lay.set_markup(runs_to_markup(runs), -1)
 
         local_x = max(0, click_x - bl.text_x)
         local_y = max(0, click_y - (bl.y + TEXT_PAD))
@@ -336,6 +397,8 @@ class BlocksView(Gtk.Overlay):
         display_text = lay.get_text()
         char_idx = display_char_from_byte(display_text, byte_idx) + trailing
         char_idx = min(char_idx, len(display_text))
+        if runs is None:
+            return char_idx
         return source_offset_from_display(runs, char_idx)
 
     def _start_editing(self, bl, cursor_source_idx=None):
@@ -345,6 +408,9 @@ class BlocksView(Gtk.Overlay):
         tv.set_right_margin(0)
         tv.set_top_margin(0)
         tv.set_bottom_margin(0)
+        if bl.block.code_lang is not None:
+            tv.set_monospace(True)
+            _apply_code_textview_style(tv, True)
         buf = tv.get_buffer()
         buf.set_text(bl.block.text)
         if cursor_source_idx is not None:
@@ -461,7 +527,10 @@ class BlocksView(Gtk.Overlay):
         return None
 
     def _begin_structural(self):
-        return ([Block(b.level, b.text) for b in self.blocks], self._capture_cursor())
+        return (
+            [Block(b.level, b.text, b.code_lang) for b in self.blocks],
+            self._capture_cursor(),
+        )
 
     def _end_structural(self, pre):
         self._cancel_coalesce_timer()
@@ -644,12 +713,35 @@ class BlocksView(Gtk.Overlay):
     def _handle_tab(self, shift):
         if self.editing_block is None:
             return False
+        if self.editing_block.code_lang is not None:
+            return self._handle_tab_in_code(shift)
         b = self._block_index(self.editing_block)
         pre = self._begin_structural()
         if self._shift_levels(b, self._subtree_end(b), shift):
             self._end_structural(pre)
             self.canvas.queue_draw()
             self.queue_resize()
+        return True
+
+    def _handle_tab_in_code(self, shift):
+        buf = self.edit_view.get_buffer()
+        if shift:
+            insert_iter = buf.get_iter_at_mark(buf.get_insert())
+            line_start = buf.get_iter_at_line(insert_iter.get_line())
+            n_remove = 0
+            probe = line_start.copy()
+            while n_remove < 4 and not probe.ends_line():
+                if probe.get_char() != " ":
+                    break
+                probe.forward_char()
+                n_remove += 1
+            if n_remove > 0:
+                end_remove = line_start.copy()
+                end_remove.forward_chars(n_remove)
+                buf.delete(line_start, end_remove)
+        else:
+            buf.delete_selection(False, True)
+            buf.insert_at_cursor("    ")
         return True
 
     def _move_range(self, start, end, direction):
@@ -713,12 +805,20 @@ class BlocksView(Gtk.Overlay):
     def _handle_enter(self):
         if self.editing_block is None:
             return False
-        pre = self._begin_structural()
-        b = self._block_index(self.editing_block)
+        if self.editing_block.code_lang is not None:
+            return False
         block = self.editing_block
-
         buf = self.edit_view.get_buffer()
         offset = buf.get_iter_at_mark(buf.get_insert()).get_offset()
+
+        if offset == len(block.text):
+            m = CODE_FENCE_RE.match(block.text)
+            if m is not None:
+                return self._convert_to_code_block(m.group(1))
+
+        pre = self._begin_structural()
+        b = self._block_index(self.editing_block)
+
         left = block.text[:offset]
         right = block.text[offset:]
 
@@ -738,11 +838,43 @@ class BlocksView(Gtk.Overlay):
         self._move_to_block(insert_idx, 0, 0)
         return True
 
+    def _convert_to_code_block(self, lang):
+        block = self.editing_block
+        buf = self.edit_view.get_buffer()
+        pre = self._begin_structural()
+        block.code_lang = lang
+        self._suppress_text_snapshot = True
+        try:
+            buf.set_text("")
+        finally:
+            self._suppress_text_snapshot = False
+        self._end_structural(pre)
+        self.edit_view.set_monospace(True)
+        _apply_code_textview_style(self.edit_view, True)
+        self.canvas.queue_draw()
+        self.queue_resize()
+        return True
+
+    def _revert_code_block(self):
+        block = self.editing_block
+        pre = self._begin_structural()
+        block.code_lang = None
+        self._end_structural(pre)
+        self.edit_view.set_monospace(False)
+        _apply_code_textview_style(self.edit_view, False)
+        self.canvas.queue_draw()
+        self.queue_resize()
+        return True
+
     def _maybe_handle_backspace_join(self):
         if self.editing_block is None:
             return False
         b, l, c = self._current_position()
-        if b <= 0 or l != 0 or c != 0:
+        if l != 0 or c != 0:
+            return False
+        if self.editing_block.code_lang is not None and self.editing_block.text == "":
+            return self._revert_code_block()
+        if b <= 0:
             return False
 
         pre = self._begin_structural()

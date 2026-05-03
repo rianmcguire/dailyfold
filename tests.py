@@ -279,5 +279,48 @@ class TestHistory(unittest.TestCase):
         self.assertEqual(len(h.redo_stack), 0)
 
 
+class TestCodeBlocks(unittest.TestCase):
+    def test_default_code_lang_is_none(self):
+        b = Block(0, "hi")
+        self.assertIsNone(b.code_lang)
+
+    def test_code_block_survives_structural_snapshot_copy(self):
+        v = view((0, "outer"))
+        v.blocks.append(Block(0, "def foo():\n    pass", code_lang="python"))
+        copies = [Block(b.level, b.text, b.code_lang) for b in v.blocks]
+        v.blocks[1].text = "MUTATED"
+        v.blocks[1].code_lang = "rust"
+        self.assertEqual(copies[1].text, "def foo():\n    pass")
+        self.assertEqual(copies[1].code_lang, "python")
+
+    def test_history_deepcopy_preserves_code_lang(self):
+        from copy import deepcopy
+        blocks = [Block(0, "code body", code_lang="python")]
+        snap = deepcopy(blocks)
+        blocks[0].code_lang = "rust"
+        self.assertEqual(snap[0].code_lang, "python")
+
+    def test_indent_works_on_code_block(self):
+        v = view((0, "parent"))
+        v.blocks.append(Block(0, "code", code_lang=""))
+        ok = v._shift_levels(1, 2, shift=False)
+        self.assertTrue(ok)
+        self.assertEqual(v.blocks[1].level, 1)
+        self.assertEqual(v.blocks[1].code_lang, "")
+
+    def test_move_range_keeps_code_lang(self):
+        v = _StubView()
+        v.blocks = [
+            Block(0, "a"),
+            Block(0, "code", code_lang="python"),
+        ]
+        v.selection = None
+        v._move_range(1, 2, direction=-1)
+        self.assertEqual(v.blocks[0].text, "code")
+        self.assertEqual(v.blocks[0].code_lang, "python")
+        self.assertEqual(v.blocks[1].text, "a")
+        self.assertIsNone(v.blocks[1].code_lang)
+
+
 if __name__ == "__main__":
     unittest.main()
