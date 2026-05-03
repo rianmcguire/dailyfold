@@ -9,7 +9,7 @@ Everything we've discussed but haven't built yet. Grouped roughly in order of wh
 - **Multi-line code blocks** - triple backtick. Introduces a new editing mode while inside the block.
 - **Select all** - ctrl-a selected the current textview, then expands to the current block and it's children, then additional presses expand to its parent
 - **Clipboard** - we should be able to cut/copy/paste block(s), both for internal reorganization and external consumption
-- **Drag to select** - can we trigger focus and immediately begin selection within a block? and if the drag goes across blocks, switch to block selection
+- **Double click to select word** - when not focused. Logseq sort of achieves this, but it's tricky.
 
 ## Markdown rendering
 

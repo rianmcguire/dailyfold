@@ -225,14 +225,21 @@ class BlocksView(Gtk.Overlay):
         self.history = History(cap=1000)
         self._coalesce_timer_id = None
         self._suppress_text_snapshot = False
+        self._drag_anchor_idx = None
+        self._drag_anchor_offset = None
 
         self.canvas = Gtk.DrawingArea()
         self.canvas.set_can_focus(True)
         self.canvas.add_events(
-            Gdk.EventMask.BUTTON_PRESS_MASK | Gdk.EventMask.KEY_PRESS_MASK
+            Gdk.EventMask.BUTTON_PRESS_MASK
+            | Gdk.EventMask.BUTTON_RELEASE_MASK
+            | Gdk.EventMask.POINTER_MOTION_MASK
+            | Gdk.EventMask.KEY_PRESS_MASK
         )
         self.canvas.connect("draw", self._on_draw)
         self.canvas.connect("button-press-event", self._on_click)
+        self.canvas.connect("button-release-event", self._on_button_release)
+        self.canvas.connect("motion-notify-event", self._on_canvas_motion)
         self.canvas.connect("key-press-event", self._on_canvas_key_press)
         self.add(self.canvas)
 
@@ -272,13 +279,15 @@ class BlocksView(Gtk.Overlay):
         )
         return False
 
+    def _block_at_y(self, y):
+        for bl in self.layouts:
+            if bl.y <= y < bl.y + bl.height:
+                return bl
+        return None
+
     def _on_click(self, widget, event):
         state = event.state & Gtk.accelerator_get_default_mod_mask()
-        target_bl = None
-        for bl in self.layouts:
-            if bl.y <= event.y < bl.y + bl.height:
-                target_bl = bl
-                break
+        target_bl = self._block_at_y(event.y)
 
         if state == Gdk.ModifierType.SHIFT_MASK and target_bl is not None:
             target_idx = self._block_index(target_bl.block)
@@ -303,6 +312,8 @@ class BlocksView(Gtk.Overlay):
         if target_bl is not None:
             cursor = self._cursor_from_click(target_bl, event.x, event.y)
             self._start_editing(target_bl, cursor)
+            self._drag_anchor_idx = self._block_index(target_bl.block)
+            self._drag_anchor_offset = cursor
             return True
         return False
 
@@ -344,6 +355,9 @@ class BlocksView(Gtk.Overlay):
         buf.connect("changed", self._on_buffer_changed)
         tv.connect("focus-out-event", self._on_edit_focus_out)
         tv.connect("key-press-event", self._on_key_press)
+        tv.connect("button-press-event", self._on_textview_press)
+        tv.connect("motion-notify-event", self._on_textview_motion)
+        tv.connect("button-release-event", self._on_textview_release)
 
         self.editing_block = bl.block
         self.edit_view = tv
@@ -918,6 +932,73 @@ class BlocksView(Gtk.Overlay):
 
     def _on_edit_focus_out(self, widget, event):
         self._finish_editing()
+        return False
+
+    def _on_textview_press(self, tv, event):
+        if event.type != Gdk.EventType.BUTTON_PRESS or event.button != 1:
+            return False
+        if self.editing_block is None:
+            return False
+        self._drag_anchor_idx = self._block_index(self.editing_block)
+        self._drag_anchor_offset = None
+        return False
+
+    def _on_textview_motion(self, tv, event):
+        if self._drag_anchor_idx is None or self.editing_block is None:
+            return False
+        coords = tv.translate_coordinates(self.canvas, event.x, event.y)
+        if coords is None:
+            return False
+        cx, cy = coords
+        target_bl = self._block_at_y(cy)
+        if target_bl is None:
+            return False
+        cur_idx = self._block_index(target_bl.block)
+        if cur_idx == self._drag_anchor_idx:
+            return False
+        anchor = self._drag_anchor_idx
+        self._finish_editing()
+        self.selection = (anchor, cur_idx)
+        self.canvas.grab_focus()
+        self.canvas.queue_draw()
+        return True
+
+    def _on_textview_release(self, tv, event):
+        self._drag_anchor_idx = None
+        self._drag_anchor_offset = None
+        return False
+
+    def _on_canvas_motion(self, widget, event):
+        if self._drag_anchor_idx is None:
+            return False
+        target_bl = self._block_at_y(event.y)
+        if target_bl is None:
+            return False
+        cur_idx = self._block_index(target_bl.block)
+        if self.editing_block is not None:
+            if cur_idx == self._drag_anchor_idx:
+                cur_offset = self._cursor_from_click(target_bl, event.x, event.y)
+                buf = self.edit_view.get_buffer()
+                anchor_iter = buf.get_iter_at_offset(self._drag_anchor_offset)
+                cur_iter = buf.get_iter_at_offset(cur_offset)
+                buf.select_range(cur_iter, anchor_iter)
+                return False
+            anchor = self._drag_anchor_idx
+            self._finish_editing()
+            self.selection = (anchor, cur_idx)
+            self.canvas.grab_focus()
+            self.canvas.queue_draw()
+            return False
+        if self.selection is not None:
+            anchor = self.selection[0]
+            if (anchor, cur_idx) != self.selection:
+                self.selection = (anchor, cur_idx)
+                self.canvas.queue_draw()
+        return False
+
+    def _on_button_release(self, widget, event):
+        self._drag_anchor_idx = None
+        self._drag_anchor_offset = None
         return False
 
     def _finish_editing(self):
