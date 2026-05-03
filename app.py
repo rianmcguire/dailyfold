@@ -470,6 +470,11 @@ class BlocksView(Gtk.Overlay):
             state == Gdk.ModifierType.CONTROL_MASK | Gdk.ModifierType.SHIFT_MASK
         ) and event.keyval in (Gdk.KEY_z, Gdk.KEY_Z):
             return self._do_redo()
+        if state == Gdk.ModifierType.CONTROL_MASK and event.keyval in (
+            Gdk.KEY_Return,
+            Gdk.KEY_KP_Enter,
+        ):
+            return self._handle_enter(force_split=True)
         if state == 0:
             if event.keyval == Gdk.KEY_Up:
                 return self._handle_up()
@@ -802,16 +807,17 @@ class BlocksView(Gtk.Overlay):
         self.queue_resize()
         return True
 
-    def _handle_enter(self):
+    def _handle_enter(self, force_split=False):
         if self.editing_block is None:
             return False
-        if self.editing_block.code_lang is not None:
+        is_code = self.editing_block.code_lang is not None
+        if is_code and not force_split:
             return False
         block = self.editing_block
         buf = self.edit_view.get_buffer()
         offset = buf.get_iter_at_mark(buf.get_insert()).get_offset()
 
-        if offset == len(block.text):
+        if not is_code and not force_split and offset == len(block.text):
             m = CODE_FENCE_RE.match(block.text)
             if m is not None:
                 return self._convert_to_code_block(m.group(1))
@@ -825,7 +831,8 @@ class BlocksView(Gtk.Overlay):
         has_children = self._subtree_end(b) > b + 1
         new_level = block.level + 1 if has_children else block.level
         insert_idx = b + 1
-        new_block = Block(level=new_level, text=right)
+        new_lang = block.code_lang if is_code and offset < len(block.text) else None
+        new_block = Block(level=new_level, text=right, code_lang=new_lang)
         self.blocks.insert(insert_idx, new_block)
 
         self._suppress_text_snapshot = True
