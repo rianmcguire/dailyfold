@@ -53,3 +53,31 @@ python3 app.py --snapshot [path]
 ```
 
 Defaults to `snapshots/latest.png`. Useful for quick visual diffs in CI or when no display is available.
+
+### Native UI harness (for agent-driven testing)
+
+The repo includes a persistent Xvfb harness that sends native X11 mouse and
+keyboard events with `xdotool`. Each input command automatically captures the
+resulting GTK window to `.ui-harness/latest.png`.
+
+On Fedora, install the harness and app dependencies with:
+
+```
+sudo dnf install gtk3 python3-gobject python3-cairo xorg-x11-server-Xvfb xdotool
+```
+
+Start a session, interact with window-relative coordinates, and stop it with:
+
+```
+scripts/ui.py start
+scripts/ui.py click 180 78
+scripts/ui.py type "edited text"
+scripts/ui.py key ctrl+z
+scripts/ui.py drag 100 80 100 160
+scripts/ui.py shot snapshots/manual-check.png
+scripts/ui.py stop
+```
+
+Use `scripts/ui.py status` for the display, process IDs, and window geometry,
+or `scripts/ui.py logs` if the app exits. Set `DAILYFOLD_UI_DISPLAY=:N` before
+`start` to request a particular free X display.
