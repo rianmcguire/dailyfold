@@ -644,6 +644,13 @@ class BlocksView(Gtk.Overlay):
     def _on_key_press(self, tv, event):
         state = event.state & Gtk.accelerator_get_default_mod_mask()
         if state == Gdk.ModifierType.CONTROL_MASK and event.keyval in (
+            Gdk.KEY_a,
+            Gdk.KEY_A,
+        ):
+            if self._buffer_is_fully_selected(tv.get_buffer()):
+                return self._enter_selection_mode()
+            return False
+        if state == Gdk.ModifierType.CONTROL_MASK and event.keyval in (
             Gdk.KEY_z,
             Gdk.KEY_Z,
         ):
@@ -704,6 +711,16 @@ class BlocksView(Gtk.Overlay):
             )
         self.desired_col = None
         return False
+
+    def _buffer_is_fully_selected(self, buf):
+        start, end = buf.get_bounds()
+        if start.equal(end):
+            return True
+        selected = buf.get_selection_bounds()
+        if not selected:
+            return False
+        sel_start, sel_end = selected
+        return sel_start.equal(start) and sel_end.equal(end)
 
     def _capture_cursor(self):
         if self.editing_block is not None:
@@ -931,6 +948,13 @@ class BlocksView(Gtk.Overlay):
         while end < len(self.blocks) and self.blocks[end].level > base:
             end += 1
         return end
+
+    def _parent_index(self, block_idx):
+        level = self.blocks[block_idx].level
+        for i in range(block_idx - 1, -1, -1):
+            if self.blocks[i].level < level:
+                return i
+        return None
 
     def _shift_levels(self, start, end, shift):
         if shift:
@@ -1183,6 +1207,11 @@ class BlocksView(Gtk.Overlay):
     def _on_canvas_key_press(self, widget, event):
         state = event.state & Gtk.accelerator_get_default_mod_mask()
         if state == Gdk.ModifierType.CONTROL_MASK and event.keyval in (
+            Gdk.KEY_a,
+            Gdk.KEY_A,
+        ):
+            return self._expand_block_selection()
+        if state == Gdk.ModifierType.CONTROL_MASK and event.keyval in (
             Gdk.KEY_z,
             Gdk.KEY_Z,
         ):
@@ -1259,6 +1288,23 @@ class BlocksView(Gtk.Overlay):
             )
 
         return False
+
+    def _expand_block_selection(self):
+        if self.selection is None or not self.blocks:
+            return False
+
+        indices = self._selection_indices()
+        start, end = indices[0], indices[-1] + 1
+        parent = self._parent_index(start)
+        while parent is not None and self._subtree_end(parent) < end:
+            parent = self._parent_index(parent)
+
+        if parent is not None:
+            self.selection = (parent, parent)
+        else:
+            self.selection = (0, len(self.blocks) - 1)
+        self.canvas.queue_draw()
+        return True
 
     def _handle_selection_indent(self, shift):
         if self.selection is None:

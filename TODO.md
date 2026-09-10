@@ -4,7 +4,6 @@ Everything we've discussed but haven't built yet. Grouped roughly in order of wh
 
 ## Editor
 
-- **Select all** - ctrl-a selected the current textview, then expands to the current block and it's children, then additional presses expand to its parent
 - **Clipboard** - we should be able to cut/copy/paste block(s), both for internal reorganization and external consumption
 - **Double click to select word** - when not focused. Logseq sort of achieves this, but it's tricky.
 - **More advanced multi-line code editing** - tab intent/unindent, auto-indent, syntax highlighting. consider enriching TextView vs dropping in GtkSource.View

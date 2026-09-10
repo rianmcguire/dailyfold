@@ -14,8 +14,10 @@ from history import History
 
 class _StubView:
     _block_index = BlocksView._block_index
+    _parent_index = BlocksView._parent_index
     _subtree_end = BlocksView._subtree_end
     _selection_indices = BlocksView._selection_indices
+    _expand_block_selection = BlocksView._expand_block_selection
     _shift_levels = BlocksView._shift_levels
     _move_range = BlocksView._move_range
     _visible_neighbor = BlocksView._visible_neighbor
@@ -25,7 +27,13 @@ def view(*levels_and_texts):
     v = _StubView()
     v.blocks = [Block(lvl, txt) for (lvl, txt) in levels_and_texts]
     v.selection = None
+    v.canvas = _StubCanvas()
     return v
+
+
+class _StubCanvas:
+    def queue_draw(self):
+        pass
 
 
 def levels(v):
@@ -122,6 +130,40 @@ class TestSelectionIndices(unittest.TestCase):
         v = view((0, "X"), (1, "Y"), (1, "Z"), (0, "W"), (0, "V"))
         v.selection = (1, 3)  # Y..W
         self.assertEqual(list(v._selection_indices()), [1, 2, 3])
+
+
+class TestSelectAll(unittest.TestCase):
+    def test_parent_index(self):
+        v = view((0, "A"), (1, "B"), (2, "C"), (1, "D"), (0, "E"))
+        self.assertEqual(v._parent_index(2), 1)
+        self.assertEqual(v._parent_index(3), 0)
+        self.assertIsNone(v._parent_index(4))
+
+    def test_expands_single_block_to_parent_subtree(self):
+        v = view((0, "A"), (1, "B"), (2, "C"), (1, "D"), (0, "E"))
+        v.selection = (2, 2)
+        self.assertTrue(v._expand_block_selection())
+        self.assertEqual(v.selection, (1, 1))
+        self.assertEqual(list(v._selection_indices()), [1, 2])
+        self.assertTrue(v._expand_block_selection())
+        self.assertEqual(v.selection, (0, 0))
+        self.assertEqual(list(v._selection_indices()), [0, 1, 2, 3])
+
+    def test_cross_sibling_selection_expands_to_common_parent(self):
+        v = view((0, "A"), (1, "B"), (1, "C"), (0, "D"))
+        v.selection = (1, 2)
+        self.assertTrue(v._expand_block_selection())
+        self.assertEqual(v.selection, (0, 0))
+
+    def test_top_level_expands_to_whole_document(self):
+        v = view((0, "A"), (1, "B"), (0, "C"), (1, "D"))
+        v.selection = (0, 0)
+        self.assertTrue(v._expand_block_selection())
+        self.assertEqual(v.selection, (0, 3))
+
+    def test_no_selection_is_not_handled(self):
+        v = view((0, "A"))
+        self.assertFalse(v._expand_block_selection())
 
 
 class TestShiftLevels(unittest.TestCase):
