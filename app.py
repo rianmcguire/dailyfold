@@ -3,6 +3,7 @@ import json
 import os
 import re
 import signal
+import sys
 from dataclasses import dataclass
 from html import escape as html_escape
 
@@ -21,6 +22,8 @@ from markdown import (
     source_offset_from_display,
     tokenize_inline,
 )
+from model import Block
+from storage import MarkdownDocument, load_document, save_document
 
 
 BG = (1.0, 1.0, 1.0)
@@ -56,14 +59,6 @@ HEADER_GAP = 8
 RIGHT_PAD = 16
 TASK_CHECKBOX_SIZE = 13
 TASK_CHECKBOX_GAP = 7
-
-
-@dataclass(eq=False)
-class Block:
-    level: int
-    text: str
-    code_lang: str | None = None
-    collapsed: bool = False
 
 
 @dataclass
@@ -177,6 +172,7 @@ def copy_blocks(blocks):
             block.text,
             block.code_lang,
             block.collapsed,
+            block.properties,
         )
         for block in blocks
     ]
@@ -267,6 +263,7 @@ def blocks_to_clipboard_payload(blocks):
                     "text": block.text,
                     "code_lang": block.code_lang,
                     "collapsed": block.collapsed,
+                    "properties": list(block.properties),
                 }
                 for block in normalized
             ],
@@ -295,6 +292,7 @@ def blocks_from_clipboard_payload(payload):
         text = raw.get("text")
         code_lang = raw.get("code_lang")
         collapsed = raw.get("collapsed")
+        properties = raw.get("properties", [])
         if isinstance(level, bool) or not isinstance(level, int) or level < 0:
             return None
         if not isinstance(text, str):
@@ -303,7 +301,11 @@ def blocks_from_clipboard_payload(payload):
             return None
         if not isinstance(collapsed, bool):
             return None
-        blocks.append(Block(level, text, code_lang, collapsed))
+        if not isinstance(properties, list) or not all(
+            isinstance(prop, str) for prop in properties
+        ):
+            return None
+        blocks.append(Block(level, text, code_lang, collapsed, tuple(properties)))
     return blocks
 
 
@@ -626,7 +628,7 @@ def paint_blocks(
 
 
 class BlocksView(Gtk.Overlay):
-    def __init__(self, header_text, blocks):
+    def __init__(self, header_text, blocks, on_change=None):
         super().__init__()
         self.header_text = header_text
         self.blocks = blocks
@@ -636,6 +638,7 @@ class BlocksView(Gtk.Overlay):
         self.edit_view = None
         self.desired_col = None
         self.selection = None
+        self.on_change = on_change
         self.history = History(cap=1000)
         self._coalesce_timer_id = None
         self._suppress_text_snapshot = False
@@ -887,6 +890,7 @@ class BlocksView(Gtk.Overlay):
         self.queue_resize()
         if not self._suppress_text_snapshot:
             self._reset_coalesce_timer()
+            self._notify_change()
 
     def _on_key_press(self, tv, event):
         state = event.state & Gtk.accelerator_get_default_mod_mask()
@@ -979,7 +983,16 @@ class BlocksView(Gtk.Overlay):
 
     def _begin_structural(self):
         return (
-            [Block(b.level, b.text, b.code_lang, b.collapsed) for b in self.blocks],
+            [
+                Block(
+                    b.level,
+                    b.text,
+                    b.code_lang,
+                    b.collapsed,
+                    b.properties,
+                )
+                for b in self.blocks
+            ],
             self._capture_cursor(),
         )
 
@@ -987,6 +1000,11 @@ class BlocksView(Gtk.Overlay):
         self._cancel_coalesce_timer()
         pre_blocks, pre_cursor = pre
         self.history.commit_structural(pre_blocks, pre_cursor)
+        self._notify_change()
+
+    def _notify_change(self):
+        if self.on_change is not None:
+            self.on_change()
 
     def _toggle_task_blocks(self, indices):
         targets = [
@@ -1055,6 +1073,7 @@ class BlocksView(Gtk.Overlay):
         snap = self.history.undo(self.blocks, cursor)
         self._cancel_coalesce_timer()
         self.blocks[:] = snap.blocks
+        self._notify_change()
         self._restore_cursor(snap.cursor)
         return True
 
@@ -1068,6 +1087,7 @@ class BlocksView(Gtk.Overlay):
         snap = self.history.redo(self.blocks, cursor)
         self._cancel_coalesce_timer()
         self.blocks[:] = snap.blocks
+        self._notify_change()
         self._restore_cursor(snap.cursor)
         return True
 
@@ -1618,6 +1638,7 @@ class BlocksView(Gtk.Overlay):
                 block.text,
                 block.code_lang,
                 block.collapsed,
+                block.properties,
             )
             for block in pasted
         ]
@@ -1794,14 +1815,41 @@ class BlocksView(Gtk.Overlay):
 
 
 class AppWindow(Gtk.Window):
-    def __init__(self, header_text, blocks):
+    def __init__(self, header_text, document, file_path):
         super().__init__(title="dailyfold")
+        self.document = document
+        self.file_path = file_path
+        self._save_timer_id = None
         self.set_default_size(720, 480)
-        self.connect("destroy", Gtk.main_quit)
-        self.add(BlocksView(header_text, blocks))
+        self.connect("destroy", self._on_destroy)
+        self.view = BlocksView(
+            header_text, document.blocks, on_change=self._schedule_save
+        )
+        self.add(self.view)
+
+    def _schedule_save(self):
+        if self._save_timer_id is not None:
+            GLib.source_remove(self._save_timer_id)
+        self._save_timer_id = GLib.timeout_add(500, self._save_now)
+
+    def _save_now(self):
+        self._save_timer_id = None
+        self.document.blocks = self.view.blocks
+        try:
+            save_document(self.file_path, self.document)
+        except OSError as error:
+            print(f"Could not save {self.file_path}: {error}", file=sys.stderr)
+        return GLib.SOURCE_REMOVE
+
+    def _on_destroy(self, widget):
+        if self._save_timer_id is not None:
+            GLib.source_remove(self._save_timer_id)
+            self._save_now()
+        Gtk.main_quit()
 
 
 DEFAULT_SNAPSHOT = os.path.join(os.path.dirname(__file__), "snapshots", "latest.png")
+EXAMPLE_FILE = os.path.join(os.path.dirname(__file__), "example.md")
 
 
 def snapshot(path, width=720, height=480):
@@ -1835,7 +1883,22 @@ def main():
         snapshot(args.snapshot, args.width, args.height)
         return
 
-    win = AppWindow(HEADER, BLOCKS)
+    try:
+        document = load_document(EXAMPLE_FILE)
+    except FileNotFoundError:
+        document = MarkdownDocument(
+            [
+                Block(
+                    block.level,
+                    block.text,
+                    block.code_lang,
+                    block.collapsed,
+                    block.properties,
+                )
+                for block in BLOCKS
+            ]
+        )
+    win = AppWindow(HEADER, document, EXAMPLE_FILE)
     win.show_all()
 
     def _graceful_quit():

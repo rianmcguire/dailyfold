@@ -4,6 +4,10 @@ A daily-journal outliner. GTK3 + Cairo; markdown on disk, one file per day.
 
 Very early. See [TODO.md](TODO.md) for what's planned.
 
+The GUI currently loads `example.md` from the repository and automatically
+saves edits back to it after a short debounce. This hard-coded path is temporary
+until storage configuration and date navigation are added.
+
 ## Dependencies
 
 - Python 3

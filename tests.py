@@ -273,7 +273,12 @@ class TestClipboardFormat(unittest.TestCase):
 
     def test_private_payload_roundtrip_is_lossless(self):
         original = [
-            Block(0, "parent", collapsed=True),
+            Block(
+                0,
+                "parent",
+                collapsed=True,
+                properties=("id:: abc-123",),
+            ),
             Block(1, "code\n", code_lang="python"),
         ]
         parsed = blocks_from_clipboard_payload(
@@ -281,12 +286,12 @@ class TestClipboardFormat(unittest.TestCase):
         )
         self.assertEqual(
             [
-                (b.level, b.text, b.code_lang, b.collapsed)
+                (b.level, b.text, b.code_lang, b.collapsed, b.properties)
                 for b in parsed
             ],
             [
-                (0, "parent", None, True),
-                (1, "code\n", "python", False),
+                (0, "parent", None, True, ("id:: abc-123",)),
+                (1, "code\n", "python", False, ()),
             ],
         )
 
