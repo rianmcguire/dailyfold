@@ -9,7 +9,6 @@ Everything we've discussed but haven't built yet. Grouped roughly in order of wh
 
 ## Markdown rendering
 
-- **More inline syntax** — links `[text](url)`, autolinks, and strikethrough. Current parser handles `**bold**`, `*italic*`, `` `code` ``, and backslash escapes; no nesting.
 - **Code styling** — `<tt>` gets monospace but no background; once we have theme-aware colors, give code a subtle bg.
 
 ## Persistence / journaling (the actual app)

@@ -256,6 +256,16 @@ class TestClipboardFormat(unittest.TestCase):
             "</ul></li><li>sibling</li></ul>",
         )
 
+    def test_html_includes_strikethrough_and_links(self):
+        block = Block(0, "~~old~~ [docs](https://example.com?q=1&lang=en)")
+
+        self.assertEqual(
+            blocks_to_clipboard_html([block]),
+            "<ul><li><del>old</del> "
+            '<a href="https://example.com?q=1&amp;lang=en">docs</a>'
+            "</li></ul>",
+        )
+
     def test_html_escapes_text_and_preserves_line_breaks(self):
         block = Block(0, "<tag>\n& more")
         self.assertEqual(

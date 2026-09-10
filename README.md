@@ -8,6 +8,10 @@ The GUI opens today's journal, automatically saves edits after a short debounce,
 and uses one ISO-dated Markdown file per day. The calendar sidebar navigates
 between days and marks dates that already have a file.
 
+Inline Markdown supports `**bold**`, `*italic*`, `` `code` ``, `~~strikethrough~~`,
+backslash escapes, `[label](destination)` links, angle-bracket autolinks, and bare
+HTTP(S) URLs. Emphasis and strikethrough can be nested.
+
 ## Dependencies
 
 - Python 3

@@ -20,6 +20,7 @@ from history import History
 from markdown import (
     display_char_from_byte,
     parse_inline,
+    runs_to_html,
     runs_to_markup,
     source_offset_from_display,
 )
@@ -219,17 +220,7 @@ def blocks_to_clipboard_text(blocks):
 
 
 def _inline_html(text):
-    parts = []
-    for run in parse_inline(text).runs:
-        value = html_escape(run.text).replace("\n", "<br>\n")
-        if "code" in run.style:
-            value = f"<code>{value}</code>"
-        if "italic" in run.style:
-            value = f"<em>{value}</em>"
-        if "bold" in run.style:
-            value = f"<strong>{value}</strong>"
-        parts.append(value)
-    return "".join(parts)
+    return runs_to_html(parse_inline(text).runs)
 
 
 def blocks_to_clipboard_html(blocks):

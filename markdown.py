@@ -2,13 +2,24 @@
 
 Block-level markdown is irrelevant here: documents are split into Block(level, text)
 at load time, so this module only sees the text inside one block. Supported:
-**bold**, *italic*, `code`, and backslash escapes. No nesting yet.
+emphasis, code, strikethrough, links, autolinks, and backslash escapes.
 """
 
 from collections.abc import Iterable
 from dataclasses import dataclass, field
+from html import escape as html_escape
+import re
 import string
+from urllib.parse import urlsplit
 from xml.sax.saxutils import escape as xml_escape
+
+
+ANGLE_EMAIL_RE = re.compile(
+    r"[A-Za-z0-9.!#$%&'*+/=?^_`{|}~-]+@"
+    r"[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?"
+    r"(?:\.[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?)+"
+)
+BARE_URL_RE = re.compile(r"https?://[^\s<>]+")
 
 
 @dataclass(frozen=True)
@@ -17,6 +28,15 @@ class InlineRun:
     source_start: int
     source_end: int
     style: frozenset = field(default_factory=frozenset)
+    link_url: str | None = None
+
+
+@dataclass(frozen=True)
+class _Piece:
+    text: str
+    boundaries: tuple[int, ...]
+    style: frozenset
+    link_url: str | None
 
 
 @dataclass(frozen=True)
@@ -32,77 +52,286 @@ class InlineParse:
         return self.display_to_source[display_char_idx]
 
 
-def parse_inline(source: str) -> InlineParse:
-    runs: list[InlineRun] = []
-    display_parts: list[str] = []
-    display_to_source = [0]
-    n = len(source)
+def _piece(
+    text: str,
+    start: int,
+    end: int,
+    style: frozenset,
+    link_url: str | None,
+    boundaries: tuple[int, ...] | None = None,
+) -> _Piece:
+    if boundaries is None:
+        boundaries = tuple(range(start, end + 1))
+    return _Piece(text, boundaries, style, link_url)
+
+
+def _find_unescaped(source: str, needle: str, start: int, end: int) -> int:
+    i = start
+    while i < end:
+        found = source.find(needle, i, end)
+        if found < 0:
+            return -1
+        slashes = 0
+        before = found - 1
+        while before >= start and source[before] == "\\":
+            slashes += 1
+            before -= 1
+        if slashes % 2 == 0:
+            return found
+        i = found + len(needle)
+    return -1
+
+
+def _unescape_punctuation(value: str) -> str:
+    result = []
     i = 0
-    plain_start = 0
-
-    def append_run(
-        text: str,
-        start: int,
-        end: int,
-        style=frozenset(),
-        boundaries: tuple[int, ...] | None = None,
-    ) -> None:
-        runs.append(InlineRun(text, start, end, style))
-        display_parts.append(text)
-
-        # A visual boundary beside hidden Markdown belongs to the run on its
-        # right. This preserves the existing click behaviour: clicking the
-        # leading edge of styled text places the editor cursor just inside its
-        # opening marker. Keeping every boundary explicit lets future syntax
-        # (escapes and links, for example) provide non-contiguous mappings.
-        if boundaries is None:
-            boundaries = tuple(range(start, end + 1))
-        display_to_source[-1] = boundaries[0]
-        display_to_source.extend(boundaries[1:])
-
-    def append_source_run(start: int, end: int, style=frozenset()) -> None:
-        append_run(source[start:end], start, end, style)
-
-    def flush_plain(end: int) -> None:
-        nonlocal plain_start
-        if plain_start < end:
-            append_source_run(plain_start, end)
-        plain_start = end
-
-    while i < n:
-        ch = source[i]
-        if ch == "\\" and i + 1 < n and source[i + 1] in string.punctuation:
-            flush_plain(i)
-            append_run(source[i + 1], i, i + 2, boundaries=(i, i + 2))
-            i += 2
-            plain_start = i
-            continue
-        if ch == "`":
-            j = source.find("`", i + 1)
-            if j != -1 and j > i + 1:
-                flush_plain(i)
-                append_source_run(i + 1, j, frozenset({"code"}))
-                i = j + 1
-                plain_start = i
-                continue
-        elif source.startswith("**", i):
-            j = source.find("**", i + 2)
-            if j != -1 and j > i + 2:
-                flush_plain(i)
-                append_source_run(i + 2, j, frozenset({"bold"}))
-                i = j + 2
-                plain_start = i
-                continue
-        elif ch == "*":
-            j = source.find("*", i + 1)
-            if j != -1 and j > i + 1:
-                flush_plain(i)
-                append_source_run(i + 1, j, frozenset({"italic"}))
-                i = j + 1
-                plain_start = i
-                continue
+    while i < len(value):
+        if (
+            value[i] == "\\"
+            and i + 1 < len(value)
+            and value[i + 1] in string.punctuation
+        ):
+            i += 1
+        result.append(value[i])
         i += 1
-    flush_plain(n)
+    return "".join(result)
+
+
+def _safe_link_destination(value: str) -> bool:
+    """Allow web/email and relative links, but reject active URI schemes."""
+    try:
+        scheme = urlsplit(value).scheme.lower()
+    except ValueError:
+        return False
+    return not scheme or scheme in {"http", "https", "mailto"}
+
+
+def _link_at(source: str, start: int, end: int):
+    if start > 0 and source[start - 1] == "!":
+        return None
+
+    label_end = _find_unescaped(source, "]", start + 1, end)
+    if label_end <= start + 1 or label_end + 1 >= end:
+        return None
+    if source[label_end + 1] != "(":
+        return None
+
+    destination_start = label_end + 2
+    depth = 0
+    i = destination_start
+    while i < end:
+        if source[i] == "\\" and i + 1 < end:
+            i += 2
+            continue
+        if source[i] == "(":
+            depth += 1
+        elif source[i] == ")":
+            if depth == 0:
+                destination = source[destination_start:i]
+                if destination.startswith("<") and destination.endswith(">"):
+                    destination = destination[1:-1]
+                if not destination or any(char.isspace() for char in destination):
+                    return None
+                destination = _unescape_punctuation(destination)
+                if not _safe_link_destination(destination):
+                    return None
+                return label_end, destination, i + 1
+            depth -= 1
+        i += 1
+    return None
+
+
+def _angle_autolink_at(source: str, start: int, end: int):
+    close = source.find(">", start + 1, end)
+    if close < 0:
+        return None
+    value = source[start + 1 : close]
+    if value.startswith(("http://", "https://", "mailto:")):
+        if any(char.isspace() for char in value):
+            return None
+        return value, value, close + 1
+    if ANGLE_EMAIL_RE.fullmatch(value):
+        return value, f"mailto:{value}", close + 1
+    return None
+
+
+def _bare_url_at(source: str, start: int, end: int):
+    if start > 0 and (source[start - 1].isalnum() or source[start - 1] in "_/"):
+        return None
+    match = BARE_URL_RE.match(source, start, end)
+    if match is None:
+        return None
+
+    url_end = match.end()
+    while url_end > start and source[url_end - 1] in ".,;:!?":
+        url_end -= 1
+    for opening, closing in (("(", ")"), ("[", "]"), ("{", "}")):
+        while (
+            url_end > start
+            and source[url_end - 1] == closing
+            and source[start:url_end].count(closing)
+            > source[start:url_end].count(opening)
+        ):
+            url_end -= 1
+    if url_end == start:
+        return None
+    return source[start:url_end], url_end
+
+
+def _parse_sequence(
+    source: str,
+    start: int,
+    end: int,
+    style: frozenset,
+    link_url: str | None = None,
+    stop: str | None = None,
+):
+    pieces = []
+    i = start
+    while i < end:
+        if source[i] == "\\" and i + 1 < end and source[i + 1] in string.punctuation:
+            pieces.append(
+                _piece(
+                    source[i + 1],
+                    i,
+                    i + 2,
+                    style,
+                    link_url,
+                    boundaries=(i, i + 2),
+                )
+            )
+            i += 2
+            continue
+
+        # A double asterisk inside italic text may either open bold or begin
+        # the italic close followed by an outer close. Prefer bold only when a
+        # complete bold span can be parsed.
+        if stop == "*" and source.startswith("**", i):
+            inner, after, closed = _parse_sequence(
+                source, i + 2, end, style | {"bold"}, link_url, "**"
+            )
+            if closed and any(piece.text for piece in inner):
+                pieces.extend(inner)
+                i = after
+                continue
+            return pieces, i + 1, True
+
+        if stop is not None and source.startswith(stop, i):
+            return pieces, i + len(stop), True
+
+        if source[i] == "`":
+            close = source.find("`", i + 1, end)
+            if close > i + 1:
+                pieces.append(
+                    _piece(
+                        source[i + 1 : close],
+                        i + 1,
+                        close,
+                        style | {"code"},
+                        link_url,
+                    )
+                )
+                i = close + 1
+                continue
+
+        if source[i] == "[" and link_url is None:
+            link = _link_at(source, i, end)
+            if link is not None:
+                label_end, destination, after = link
+                label, _, _ = _parse_sequence(
+                    source, i + 1, label_end, style, destination
+                )
+                if any(piece.text for piece in label):
+                    pieces.extend(label)
+                    i = after
+                    continue
+
+        if source[i] == "<" and link_url is None:
+            autolink = _angle_autolink_at(source, i, end)
+            if autolink is not None:
+                text, destination, after = autolink
+                pieces.append(
+                    _piece(text, i + 1, after - 1, style, destination)
+                )
+                i = after
+                continue
+
+        if link_url is None and source.startswith(("http://", "https://"), i):
+            bare_url = _bare_url_at(source, i, end)
+            if bare_url is not None:
+                destination, after = bare_url
+                pieces.append(
+                    _piece(destination, i, after, style, destination)
+                )
+                i = after
+                continue
+
+        matched_delimiter = False
+        for delimiter, name in (("**", "bold"), ("~~", "strike"), ("*", "italic")):
+            if not source.startswith(delimiter, i):
+                continue
+            inner, after, closed = _parse_sequence(
+                source,
+                i + len(delimiter),
+                end,
+                style | {name},
+                link_url,
+                delimiter,
+            )
+            if closed and any(piece.text for piece in inner):
+                pieces.extend(inner)
+                i = after
+            else:
+                pieces.append(
+                    _piece(delimiter, i, i + len(delimiter), style, link_url)
+                )
+                i += len(delimiter)
+            matched_delimiter = True
+            break
+        if matched_delimiter:
+            continue
+
+        pieces.append(_piece(source[i], i, i + 1, style, link_url))
+        i += 1
+
+    return pieces, i, False
+
+
+def parse_inline(source: str) -> InlineParse:
+    pieces, _, _ = _parse_sequence(source, 0, len(source), frozenset())
+    runs: list[InlineRun] = []
+    display_parts = []
+    display_to_source = [0]
+
+    for piece in pieces:
+        display_parts.append(piece.text)
+        display_to_source[-1] = piece.boundaries[0]
+        display_to_source.extend(piece.boundaries[1:])
+
+        if (
+            runs
+            and runs[-1].style == piece.style
+            and runs[-1].link_url == piece.link_url
+        ):
+            previous = runs[-1]
+            runs[-1] = InlineRun(
+                previous.text + piece.text,
+                previous.source_start,
+                piece.boundaries[-1],
+                piece.style,
+                piece.link_url,
+            )
+        else:
+            runs.append(
+                InlineRun(
+                    piece.text,
+                    piece.boundaries[0],
+                    piece.boundaries[-1],
+                    piece.style,
+                    piece.link_url,
+                )
+            )
+
     return InlineParse(
         tuple(runs), "".join(display_parts), tuple(display_to_source)
     )
@@ -123,7 +352,30 @@ def runs_to_markup(runs: Iterable[InlineRun]) -> str:
             t = f"<i>{t}</i>"
         if "bold" in run.style:
             t = f"<b>{t}</b>"
+        if "strike" in run.style:
+            t = f"<s>{t}</s>"
+        if run.link_url is not None:
+            t = f'<span foreground="#1a5fb4" underline="single">{t}</span>'
         parts.append(t)
+    return "".join(parts)
+
+
+def runs_to_html(runs: Iterable[InlineRun]) -> str:
+    parts = []
+    for run in runs:
+        value = html_escape(run.text).replace("\n", "<br>\n")
+        if "code" in run.style:
+            value = f"<code>{value}</code>"
+        if "italic" in run.style:
+            value = f"<em>{value}</em>"
+        if "bold" in run.style:
+            value = f"<strong>{value}</strong>"
+        if "strike" in run.style:
+            value = f"<del>{value}</del>"
+        if run.link_url is not None:
+            destination = html_escape(run.link_url, quote=True)
+            value = f'<a href="{destination}">{value}</a>'
+        parts.append(value)
     return "".join(parts)
 
 

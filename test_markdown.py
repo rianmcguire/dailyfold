@@ -2,6 +2,7 @@ import unittest
 
 from markdown import (
     parse_inline,
+    runs_to_html,
     runs_to_markup,
     source_offset_from_display,
 )
@@ -67,6 +68,90 @@ class TestParseInline(unittest.TestCase):
 
         self.assertEqual(parsed.display_text, "*literal* and `code`")
         self.assertTrue(all(not run.style for run in parsed.runs))
+
+    def test_strikethrough_renders_to_pango_and_html(self):
+        parsed = parse_inline("keep ~~remove~~")
+
+        self.assertEqual(parsed.display_text, "keep remove")
+        self.assertEqual(runs_to_markup(parsed.runs), "keep <s>remove</s>")
+        self.assertEqual(runs_to_html(parsed.runs), "keep <del>remove</del>")
+
+    def test_different_inline_styles_can_nest(self):
+        parsed = parse_inline("**bold and *italic* and ~~gone~~**")
+
+        self.assertEqual(parsed.display_text, "bold and italic and gone")
+        self.assertEqual(
+            [(run.text, run.style) for run in parsed.runs],
+            [
+                ("bold and ", frozenset({"bold"})),
+                ("italic", frozenset({"bold", "italic"})),
+                (" and ", frozenset({"bold"})),
+                ("gone", frozenset({"bold", "strike"})),
+            ],
+        )
+
+    def test_code_span_contents_are_not_parsed(self):
+        parsed = parse_inline("`**literal** https://example.com`")
+
+        self.assertEqual(parsed.display_text, "**literal** https://example.com")
+        self.assertEqual(len(parsed.runs), 1)
+        self.assertEqual(parsed.runs[0].style, frozenset({"code"}))
+        self.assertIsNone(parsed.runs[0].link_url)
+
+    def test_markdown_link_supports_formatted_label(self):
+        parsed = parse_inline(
+            "[**Dailyfold** docs](https://example.com/a?x=1&y=2)"
+        )
+
+        self.assertEqual(parsed.display_text, "Dailyfold docs")
+        self.assertTrue(all(run.link_url for run in parsed.runs))
+        self.assertEqual(
+            runs_to_html(parsed.runs),
+            '<a href="https://example.com/a?x=1&amp;y=2">'
+            "<strong>Dailyfold</strong></a>"
+            '<a href="https://example.com/a?x=1&amp;y=2"> docs</a>',
+        )
+        self.assertIn('foreground="#1a5fb4"', runs_to_markup(parsed.runs))
+
+    def test_link_mapping_skips_label_and_destination_markers(self):
+        parsed = parse_inline("[docs](target) next")
+
+        self.assertEqual(parsed.display_text, "docs next")
+        self.assertEqual(parsed.display_to_source[:5], (1, 2, 3, 4, 14))
+
+    def test_angle_url_and_email_autolinks(self):
+        url = parse_inline("<https://example.com/a>")
+        email = parse_inline("<hello@example.com>")
+
+        self.assertEqual(url.display_text, "https://example.com/a")
+        self.assertEqual(url.runs[0].link_url, "https://example.com/a")
+        self.assertEqual(email.display_text, "hello@example.com")
+        self.assertEqual(email.runs[0].link_url, "mailto:hello@example.com")
+
+    def test_bare_url_does_not_consume_sentence_punctuation(self):
+        parsed = parse_inline("Visit https://example.com/path?q=1.")
+
+        self.assertEqual(parsed.display_text, "Visit https://example.com/path?q=1.")
+        self.assertEqual(parsed.runs[1].text, "https://example.com/path?q=1")
+        self.assertEqual(parsed.runs[1].link_url, parsed.runs[1].text)
+        self.assertEqual(parsed.runs[2].text, ".")
+
+    def test_malformed_link_markup_remains_literal(self):
+        parsed = parse_inline("[broken](target")
+
+        self.assertEqual(parsed.display_text, "[broken](target")
+        self.assertTrue(all(run.link_url is None for run in parsed.runs))
+
+    def test_active_link_scheme_is_not_exported(self):
+        parsed = parse_inline("[unsafe](javascript:alert%281%29)")
+
+        self.assertEqual(parsed.display_text, "[unsafe](javascript:alert%281%29)")
+        self.assertNotIn("<a ", runs_to_html(parsed.runs))
+
+    def test_malformed_link_destination_does_not_break_parsing(self):
+        parsed = parse_inline("[broken](http://[)")
+
+        self.assertEqual(parsed.display_text, "[broken](http://[)")
 
 
 if __name__ == "__main__":
