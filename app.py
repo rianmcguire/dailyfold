@@ -19,9 +19,9 @@ from gi.repository import Gdk, GLib, Gtk, Pango, PangoCairo
 from history import History
 from markdown import (
     display_char_from_byte,
+    parse_inline,
     runs_to_markup,
     source_offset_from_display,
-    tokenize_inline,
 )
 from model import Block
 from storage import (
@@ -133,12 +133,14 @@ def toggle_task_text(text):
     return replacement + text[4:]
 
 
-def _task_markup(text):
+def _task_markup(text, inline=None):
     state = task_state(text)
     if state is None:
-        return runs_to_markup(tokenize_inline(text))
+        if inline is None:
+            inline = parse_inline(text)
+        return runs_to_markup(inline.runs)
 
-    body_markup = runs_to_markup(tokenize_inline(text[5:]))
+    body_markup = runs_to_markup(parse_inline(text[5:]).runs)
     if state == "TODO":
         label = (
             '<span foreground="#8a5a00" background="#fff0c2" '
@@ -162,8 +164,8 @@ def _block_task_state(block):
     return task_state(block.text)
 
 
-def _block_markup(block):
-    return _task_markup(block.text)
+def _block_markup(block, inline=None):
+    return _task_markup(block.text, inline)
 
 
 def visible_block_indices(blocks):
@@ -218,7 +220,7 @@ def blocks_to_clipboard_text(blocks):
 
 def _inline_html(text):
     parts = []
-    for run in tokenize_inline(text):
+    for run in parse_inline(text).runs:
         value = html_escape(run.text).replace("\n", "<br>\n")
         if "code" in run.style:
             value = f"<code>{value}</code>"
@@ -884,11 +886,11 @@ class BlocksView(Gtk.Overlay):
         if block.code_lang is not None:
             lay.set_font_description(_code_font_of(body_font))
             lay.set_text(block.text, -1)
-            runs = None
+            inline = None
         else:
             lay.set_font_description(body_font)
-            runs = tokenize_inline(block.text)
-            lay.set_markup(_block_markup(block), -1)
+            inline = parse_inline(block.text)
+            lay.set_markup(_block_markup(block, inline), -1)
 
         local_x = max(0, click_x - bl.text_x)
         local_y = max(0, click_y - (bl.y + TEXT_PAD))
@@ -899,9 +901,9 @@ class BlocksView(Gtk.Overlay):
         display_text = lay.get_text()
         char_idx = display_char_from_byte(display_text, byte_idx) + trailing
         char_idx = min(char_idx, len(display_text))
-        if runs is None:
+        if inline is None:
             return char_idx
-        return source_offset_from_display(runs, char_idx)
+        return source_offset_from_display(inline, char_idx)
 
     def _start_editing(self, bl, cursor_source_idx=None):
         tv = Gtk.TextView()
