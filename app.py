@@ -14,7 +14,8 @@ import gi
 gi.require_version("Gtk", "3.0")
 gi.require_version("Gdk", "3.0")
 gi.require_version("PangoCairo", "1.0")
-from gi.repository import Gdk, GLib, Gtk, Pango, PangoCairo
+gi.require_version("GtkSource", "4")
+from gi.repository import Gdk, GLib, Gtk, GtkSource, Pango, PangoCairo
 
 from history import History
 from markdown import (
@@ -70,6 +71,7 @@ BOTTOM_PAD = 28
 TASK_CHECKBOX_SIZE = 13
 TASK_CHECKBOX_GAP = 7
 SIDEBAR_WIDTH = 230
+CODE_INDENT_WIDTH = 4
 
 
 @dataclass
@@ -879,16 +881,32 @@ class BlocksView(Gtk.Overlay):
         return source_offset_from_display(inline, char_idx)
 
     def _start_editing(self, bl, cursor_source_idx=None):
-        tv = Gtk.TextView()
+        is_code = bl.block.code_lang is not None
+        tv = GtkSource.View() if is_code else Gtk.TextView()
         tv.set_wrap_mode(Gtk.WrapMode.WORD_CHAR)
         tv.set_left_margin(0)
         tv.set_right_margin(0)
         tv.set_top_margin(0)
         tv.set_bottom_margin(0)
-        if bl.block.code_lang is not None:
+        if is_code:
             tv.set_monospace(True)
+            tv.set_auto_indent(True)
+            tv.set_indent_on_tab(True)
+            tv.set_indent_width(CODE_INDENT_WIDTH)
+            tv.set_tab_width(CODE_INDENT_WIDTH)
+            tv.set_insert_spaces_instead_of_tabs(True)
+            tv.set_smart_backspace(True)
+            tv.set_smart_home_end(GtkSource.SmartHomeEndType.BEFORE)
             _apply_code_textview_style(tv, True)
         buf = tv.get_buffer()
+        if is_code:
+            # GtkSourceView remains useful without language-aware colouring: its
+            # buffer still provides bracket matching and its view supplies the
+            # source-editing indentation behaviour configured above. Dailyfold's
+            # document history remains the sole undo manager.
+            buf.set_highlight_syntax(False)
+            buf.set_highlight_matching_brackets(True)
+            buf.set_max_undo_levels(0)
         buf.set_text(bl.block.text)
         if cursor_source_idx is not None:
             offset = max(0, min(cursor_source_idx, buf.get_char_count()))
@@ -1215,6 +1233,13 @@ class BlocksView(Gtk.Overlay):
 
     def _handle_up(self):
         b, l, c = self._current_position()
+        if self.editing_block.code_lang is not None:
+            probe = self.edit_view.get_buffer().get_iter_at_mark(
+                self.edit_view.get_buffer().get_insert()
+            )
+            if self.edit_view.backward_display_line(probe):
+                self.desired_col = None
+                return False
         if self.desired_col is None:
             self.desired_col = c
         if l > 0:
@@ -1231,6 +1256,13 @@ class BlocksView(Gtk.Overlay):
 
     def _handle_down(self):
         b, l, c = self._current_position()
+        if self.editing_block.code_lang is not None:
+            probe = self.edit_view.get_buffer().get_iter_at_mark(
+                self.edit_view.get_buffer().get_insert()
+            )
+            if self.edit_view.forward_display_line(probe):
+                self.desired_col = None
+                return False
         if self.desired_col is None:
             self.desired_col = c
         lines = self.editing_block.text.split("\n")
@@ -1299,34 +1331,15 @@ class BlocksView(Gtk.Overlay):
         if self.editing_block is None:
             return False
         if self.editing_block.code_lang is not None:
-            return self._handle_tab_in_code(shift)
+            # Let GtkSourceView indent/unindent either the current line or every
+            # selected line while preserving the selection.
+            return False
         b = self._block_index(self.editing_block)
         pre = self._begin_structural()
         if self._shift_levels(b, self._subtree_end(b), shift):
             self._end_structural(pre)
             self.canvas.queue_draw()
             self.queue_resize()
-        return True
-
-    def _handle_tab_in_code(self, shift):
-        buf = self.edit_view.get_buffer()
-        if shift:
-            insert_iter = buf.get_iter_at_mark(buf.get_insert())
-            line_start = buf.get_iter_at_line(insert_iter.get_line())
-            n_remove = 0
-            probe = line_start.copy()
-            while n_remove < 4 and not probe.ends_line():
-                if probe.get_char() != " ":
-                    break
-                probe.forward_char()
-                n_remove += 1
-            if n_remove > 0:
-                end_remove = line_start.copy()
-                end_remove.forward_chars(n_remove)
-                buf.delete(line_start, end_remove)
-        else:
-            buf.delete_selection(False, True)
-            buf.insert_at_cursor("    ")
         return True
 
     def _move_range(self, start, end, direction):
@@ -1431,6 +1444,7 @@ class BlocksView(Gtk.Overlay):
         block = self.editing_block
         buf = self.edit_view.get_buffer()
         pre = self._begin_structural()
+        block_idx = self._block_index(block)
         block.code_lang = lang
         self._suppress_text_snapshot = True
         try:
@@ -1438,21 +1452,20 @@ class BlocksView(Gtk.Overlay):
         finally:
             self._suppress_text_snapshot = False
         self._end_structural(pre)
-        self.edit_view.set_monospace(True)
-        _apply_code_textview_style(self.edit_view, True)
-        self.canvas.queue_draw()
-        self.queue_resize()
+        # The fence was entered in a plain TextView; replace it with the source
+        # view now that the block has become code.
+        self._move_to_block(block_idx, 0, 0)
         return True
 
     def _revert_code_block(self):
         block = self.editing_block
         pre = self._begin_structural()
+        block_idx = self._block_index(block)
         block.code_lang = None
         self._end_structural(pre)
-        self.edit_view.set_monospace(False)
-        _apply_code_textview_style(self.edit_view, False)
-        self.canvas.queue_draw()
-        self.queue_resize()
+        # Empty-code Backspace turns the block back into prose, including its
+        # editor widget and keyboard behaviour.
+        self._move_to_block(block_idx, 0, 0)
         return True
 
     def _maybe_handle_backspace_join(self):

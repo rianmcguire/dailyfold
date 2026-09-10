@@ -5,7 +5,6 @@ Everything we've discussed but haven't built yet. Grouped roughly in order of wh
 ## Editor
 
 - **Double click to select word** - when not focused. Logseq sort of achieves this, but it's tricky.
-- **More advanced multi-line code editing** - tab intent/unindent, auto-indent, syntax highlighting. consider enriching TextView vs dropping in GtkSource.View
 
 ## Markdown rendering
 
@@ -23,5 +22,6 @@ editor. Remaining:
 ## Deferred (explicit not-now)
 
 - **Dark mode** — light colors only for v1. When revisited, pull colors from live `Gtk.StyleContext` rather than hardcoding a dark palette.
+- **Code syntax highlighting** — fenced code blocks use GtkSourceView for editing ergonomics, but syntax highlighting is intentionally disabled for the first pass.
 - **Partial cross-block selection** — explicitly out of scope per editor-model memory. Within-block selection uses TextView natively.
 - **GTK4** — we chose GTK3 for simplicity. Revisit only if we hit CPU-rendering walls.

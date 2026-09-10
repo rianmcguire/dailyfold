@@ -16,12 +16,13 @@ HTTP(S) URLs. Emphasis and strikethrough can be nested.
 
 - Python 3
 - GTK 3 with Broadway backend (`libgtk-3-0`, `gir1.2-gtk-3.0`, `libgtk-3-bin` for `broadwayd`)
+- GtkSourceView 4
 - `python3-gi`, `python3-cairo`, `gir1.2-pangocairo-1.0`
 
 On Debian/Ubuntu:
 
 ```
-sudo apt install python3-gi python3-cairo gir1.2-gtk-3.0 gir1.2-pangocairo-1.0 libgtk-3-bin
+sudo apt install python3-gi python3-cairo gir1.2-gtk-3.0 gir1.2-gtksource-4 gir1.2-pangocairo-1.0 libgtk-3-bin
 ```
 
 ## Running
@@ -69,7 +70,7 @@ resulting GTK window to `.ui-harness/latest.png`.
 On Fedora, install the harness and app dependencies with:
 
 ```
-sudo dnf install gtk3 python3-gobject python3-cairo xorg-x11-server-Xvfb xdotool
+sudo dnf install gtk3 gtksourceview4 python3-gobject python3-cairo xorg-x11-server-Xvfb xdotool
 ```
 
 Start a session, interact with window-relative coordinates, and stop it with:
