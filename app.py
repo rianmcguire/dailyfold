@@ -54,6 +54,7 @@ class Block:
     level: int
     text: str
     code_lang: str | None = None
+    collapsed: bool = False
 
 
 @dataclass
@@ -65,6 +66,7 @@ class BlockLayout:
     text_width: float
     checkbox_x: float | None = None
     checkbox_y: float | None = None
+    has_children: bool = False
 
 
 @dataclass
@@ -138,6 +140,21 @@ def _block_task_state(block):
 
 def _block_markup(block):
     return _task_markup(block.text)
+
+
+def visible_block_indices(blocks):
+    """Return the document indices that are visible after applying folds."""
+    visible = []
+    hidden_below_level = None
+    for i, block in enumerate(blocks):
+        if hidden_below_level is not None:
+            if block.level > hidden_below_level:
+                continue
+            hidden_below_level = None
+        visible.append(i)
+        if block.collapsed:
+            hidden_below_level = block.level
+    return visible
 
 
 def resolve_body_font(widget=None):
@@ -214,7 +231,8 @@ def compute_layouts(pango_context, width, body_font, header_text, blocks):
 
     code_font = _code_font_of(body_font)
     layouts = []
-    for block in blocks:
+    for block_idx in visible_block_indices(blocks):
+        block = blocks[block_idx]
         tx = X0 + block.level * INDENT + BULLET_GAP
         checkbox_x = None
         checkbox_y = None
@@ -248,6 +266,10 @@ def compute_layouts(pango_context, width, body_font, header_text, blocks):
                 text_width=tw,
                 checkbox_x=checkbox_x,
                 checkbox_y=checkbox_y,
+                has_children=(
+                    block_idx + 1 < len(blocks)
+                    and blocks[block_idx + 1].level > block.level
+                ),
             )
         )
         y += block_h
@@ -348,11 +370,18 @@ def paint_blocks(
                 cr.line_to(gxi + 0.5, bl.y + bl.height)
                 cr.stroke()
 
-        cr.set_source_rgb(*DIM)
         bullet_x = X0 + block.level * INDENT + 5.5
         bullet_y = bl.y + TEXT_PAD + body_line_h / 2
-        cr.arc(bullet_x, bullet_y, 2.5, 0, 2 * 3.14159)
-        cr.fill()
+        cr.set_source_rgb(*DIM)
+        if bl.has_children and block.collapsed:
+            cr.move_to(bullet_x - 2.5, bullet_y - 3.5)
+            cr.line_to(bullet_x + 3.5, bullet_y)
+            cr.line_to(bullet_x - 2.5, bullet_y + 3.5)
+            cr.close_path()
+            cr.fill()
+        else:
+            cr.arc(bullet_x, bullet_y, 2.5, 0, 2 * 3.14159)
+            cr.fill()
 
         if block is skip_text_for:
             continue
@@ -477,6 +506,13 @@ class BlocksView(Gtk.Overlay):
                 self.canvas.grab_focus()
                 return True
 
+        if target_bl is not None and self._bullet_hit(target_bl, event.x, event.y):
+            target_idx = self._block_index(target_bl.block)
+            if self._toggle_fold(target_idx):
+                self.selection = None
+                self.canvas.grab_focus()
+                return True
+
         if self.edit_view is not None:
             self._finish_editing()
         if self.selection is not None:
@@ -501,6 +537,16 @@ class BlocksView(Gtk.Overlay):
             and bl.checkbox_y - hit_pad
             <= y
             <= bl.checkbox_y + TASK_CHECKBOX_SIZE + hit_pad
+        )
+
+    def _bullet_hit(self, bl, x, y):
+        if not bl.has_children:
+            return False
+        bullet_x = X0 + bl.block.level * INDENT + 5.5
+        hit_radius = 8
+        return (
+            abs(x - bullet_x) <= hit_radius
+            and bl.y <= y < bl.y + bl.height
         )
 
     def _cursor_from_click(self, bl, click_x, click_y):
@@ -669,7 +715,7 @@ class BlocksView(Gtk.Overlay):
 
     def _begin_structural(self):
         return (
-            [Block(b.level, b.text, b.code_lang) for b in self.blocks],
+            [Block(b.level, b.text, b.code_lang, b.collapsed) for b in self.blocks],
             self._capture_cursor(),
         )
 
@@ -695,6 +741,21 @@ class BlocksView(Gtk.Overlay):
         for block in targets:
             block.text = toggle_task_text(block.text)
 
+        self._end_structural(pre)
+        self.canvas.queue_draw()
+        self.queue_resize()
+        return True
+
+    def _toggle_fold(self, block_idx):
+        if not (0 <= block_idx < len(self.blocks)):
+            return False
+        if self._subtree_end(block_idx) == block_idx + 1:
+            return False
+
+        pre = self._begin_structural()
+        if self.edit_view is not None:
+            self._finish_editing()
+        self.blocks[block_idx].collapsed = not self.blocks[block_idx].collapsed
         self._end_structural(pre)
         self.canvas.queue_draw()
         self.queue_resize()
@@ -805,6 +866,17 @@ class BlocksView(Gtk.Overlay):
                 self.desired_col = desired_col
                 return
 
+    def _visible_neighbor(self, block_idx, direction):
+        visible = visible_block_indices(self.blocks)
+        try:
+            pos = visible.index(block_idx)
+        except ValueError:
+            return None
+        target_pos = pos + direction
+        if 0 <= target_pos < len(visible):
+            return visible[target_pos]
+        return None
+
     def _handle_up(self):
         b, l, c = self._current_position()
         if self.desired_col is None:
@@ -812,9 +884,12 @@ class BlocksView(Gtk.Overlay):
         if l > 0:
             self._set_cursor_in_current_block(l - 1, self.desired_col)
             return True
-        if b > 0:
-            prev_lines = self.blocks[b - 1].text.split("\n")
-            self._move_to_block(b - 1, len(prev_lines) - 1, self.desired_col)
+        prev_idx = self._visible_neighbor(b, -1)
+        if prev_idx is not None:
+            prev_lines = self.blocks[prev_idx].text.split("\n")
+            self._move_to_block(
+                prev_idx, len(prev_lines) - 1, self.desired_col
+            )
             return True
         return True
 
@@ -826,8 +901,9 @@ class BlocksView(Gtk.Overlay):
         if l < len(lines) - 1:
             self._set_cursor_in_current_block(l + 1, self.desired_col)
             return True
-        if b < len(self.blocks) - 1:
-            self._move_to_block(b + 1, 0, self.desired_col)
+        next_idx = self._visible_neighbor(b, +1)
+        if next_idx is not None:
+            self._move_to_block(next_idx, 0, self.desired_col)
             return True
         return True
 
@@ -840,9 +916,12 @@ class BlocksView(Gtk.Overlay):
             lines = self.editing_block.text.split("\n")
             self._set_cursor_in_current_block(l - 1, len(lines[l - 1]))
             return True
-        if b > 0:
-            prev_lines = self.blocks[b - 1].text.split("\n")
-            self._move_to_block(b - 1, len(prev_lines) - 1, len(prev_lines[-1]))
+        prev_idx = self._visible_neighbor(b, -1)
+        if prev_idx is not None:
+            prev_lines = self.blocks[prev_idx].text.split("\n")
+            self._move_to_block(
+                prev_idx, len(prev_lines) - 1, len(prev_lines[-1])
+            )
             return True
         return True
 
@@ -987,6 +1066,8 @@ class BlocksView(Gtk.Overlay):
         right = block.text[offset:]
 
         has_children = self._subtree_end(b) > b + 1
+        if has_children and block.collapsed:
+            block.collapsed = False
         new_level = block.level + 1 if has_children else block.level
         insert_idx = b + 1
         new_lang = block.code_lang if is_code and offset < len(block.text) else None
@@ -1039,11 +1120,12 @@ class BlocksView(Gtk.Overlay):
             return False
         if self.editing_block.code_lang is not None and self.editing_block.text == "":
             return self._revert_code_block()
-        if b <= 0:
+        prev_idx = self._visible_neighbor(b, -1)
+        if prev_idx is None:
             return False
 
         pre = self._begin_structural()
-        prev = self.blocks[b - 1]
+        prev = self.blocks[prev_idx]
 
         block = self.editing_block
         prev_lines = prev.text.split("\n")
@@ -1059,7 +1141,7 @@ class BlocksView(Gtk.Overlay):
         del self.blocks[b]
 
         self._end_structural(pre)
-        self._move_to_block(b - 1, join_line, join_col)
+        self._move_to_block(prev_idx, join_line, join_col)
         return True
 
     def _handle_right(self):
@@ -1071,8 +1153,9 @@ class BlocksView(Gtk.Overlay):
         if l < len(lines) - 1:
             self._set_cursor_in_current_block(l + 1, 0)
             return True
-        if b < len(self.blocks) - 1:
-            self._move_to_block(b + 1, 0, 0)
+        next_idx = self._visible_neighbor(b, +1)
+        if next_idx is not None:
+            self._move_to_block(next_idx, 0, 0)
             return True
         return True
 
@@ -1118,13 +1201,20 @@ class BlocksView(Gtk.Overlay):
         if state == 0:
             if event.keyval == Gdk.KEY_Up:
                 indices = self._selection_indices()
-                new = max(0, indices[0] - 1)
+                new = self._visible_neighbor(indices[0], -1)
+                if new is None:
+                    new = indices[0]
                 self.selection = (new, new)
                 self.canvas.queue_draw()
                 return True
             if event.keyval == Gdk.KEY_Down:
                 indices = self._selection_indices()
-                new = min(n - 1, indices[-1] + 1)
+                visible_in_selection = [
+                    i for i in visible_block_indices(self.blocks) if i in indices
+                ]
+                new = self._visible_neighbor(visible_in_selection[-1], +1)
+                if new is None:
+                    new = visible_in_selection[-1]
                 self.selection = (new, new)
                 self.canvas.queue_draw()
                 return True
@@ -1143,11 +1233,15 @@ class BlocksView(Gtk.Overlay):
 
         if state in (Gdk.ModifierType.SHIFT_MASK, Gdk.ModifierType.MOD1_MASK):
             if event.keyval == Gdk.KEY_Up:
-                self.selection = (anchor, max(0, head - 1))
+                new_head = self._visible_neighbor(head, -1)
+                if new_head is not None:
+                    self.selection = (anchor, new_head)
                 self.canvas.queue_draw()
                 return True
             if event.keyval == Gdk.KEY_Down:
-                self.selection = (anchor, min(n - 1, head + 1))
+                new_head = self._visible_neighbor(head, +1)
+                if new_head is not None:
+                    self.selection = (anchor, new_head)
                 self.canvas.queue_draw()
                 return True
 
@@ -1217,7 +1311,8 @@ class BlocksView(Gtk.Overlay):
 
     def _exit_selection_to_edit(self, at_end):
         indices = self._selection_indices()
-        target_idx = indices[-1] if at_end else indices[0]
+        visible = [i for i in visible_block_indices(self.blocks) if i in indices]
+        target_idx = visible[-1] if at_end else visible[0]
         target = self.blocks[target_idx]
         self.selection = None
         if at_end:

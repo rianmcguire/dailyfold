@@ -4,7 +4,6 @@ Everything we've discussed but haven't built yet. Grouped roughly in order of wh
 
 ## Editor
 
-- **Folding** — collapse/expand a block's descendants. Toggle via click on bullet (bullet style changes to indicate collapsed state) and/or keyboard (Logseq uses Tab on a non-editing block, or a dedicated shortcut — pick one that doesn't collide with indent). Navigation (↑/↓) should skip over hidden descendants. Selecting/moving/deleting a folded block acts on the whole subtree. Persistence: two options worth weighing — (a) Logseq-compatible `collapsed:: true` block property, which round-trips folds through shared files but adds visible noise to the `.md`; (b) a sidecar (JSON next to each day's file, or single file in XDG state dir) that keeps the markdown clean but means folds don't survive Logseq edits of the same file. Could also do both: read/write `collapsed::` when present, fall back to sidecar otherwise.
 - **Select all** - ctrl-a selected the current textview, then expands to the current block and it's children, then additional presses expand to its parent
 - **Clipboard** - we should be able to cut/copy/paste block(s), both for internal reorganization and external consumption
 - **Double click to select word** - when not focused. Logseq sort of achieves this, but it's tricky.
@@ -26,6 +25,7 @@ We are a "daily journal" but have none of this yet:
 - **Storage location** — configurable; default to something like `~/Documents/dailyfold/` or XDG data dir.
 - **Load on startup** — today's file, or most recent.
 - **Save on edit** — debounced write on every change; no explicit save action.
+- **Fold persistence** — decide whether the in-memory fold state becomes a Logseq-compatible `collapsed:: true` block property or sidecar state when loading/saving is built.
 - **Date navigation** — jump to today, previous/next day via keyboard (probably Ctrl+. / Ctrl+, or similar). Always-visible "today" shortcut.
 - **Calendar day picker** — month-grid popup (or persistent sidebar?) to jump to an arbitrary date. Highlight days that have a file on disk so empty days are visually distinct. Arrow keys navigate the grid; Enter opens. Consider showing a small content preview or block-count per day on hover.
 - **Search** — cross-file full-text across all days. Triggered by keyboard shortcut (Ctrl+K / Ctrl+Shift+F). Modal/overlay with incremental results as you type; each result shows the date, the block, and surrounding context with the match highlighted. Enter jumps to the day + scrolls/focuses the block. Start naive (scan files on each query — fine up to thousands of days); add an index later if it gets slow. Scope: plain substring first, regex / token-based filtering later.

@@ -7,6 +7,7 @@ from app import (
     _task_markup,
     task_state,
     toggle_task_text,
+    visible_block_indices,
 )
 from history import History
 
@@ -17,6 +18,7 @@ class _StubView:
     _selection_indices = BlocksView._selection_indices
     _shift_levels = BlocksView._shift_levels
     _move_range = BlocksView._move_range
+    _visible_neighbor = BlocksView._visible_neighbor
 
 
 def view(*levels_and_texts):
@@ -48,6 +50,46 @@ class TestSubtreeEnd(unittest.TestCase):
         v = view((0, "A"), (1, "B"), (2, "C"), (1, "D"), (0, "E"))
         self.assertEqual(v._subtree_end(0), 4)
         self.assertEqual(v._subtree_end(1), 3)
+
+
+class TestVisibleBlockIndices(unittest.TestCase):
+    def test_all_visible_without_folds(self):
+        blocks = [Block(0, "A"), Block(1, "B"), Block(0, "C")]
+        self.assertEqual(visible_block_indices(blocks), [0, 1, 2])
+
+    def test_fold_hides_entire_subtree(self):
+        blocks = [
+            Block(0, "A", collapsed=True),
+            Block(1, "B"),
+            Block(2, "C"),
+            Block(1, "D"),
+            Block(0, "E"),
+        ]
+        self.assertEqual(visible_block_indices(blocks), [0, 4])
+
+    def test_nested_fold_is_retained_when_parent_expands(self):
+        blocks = [
+            Block(0, "A"),
+            Block(1, "B", collapsed=True),
+            Block(2, "C"),
+            Block(1, "D"),
+        ]
+        self.assertEqual(visible_block_indices(blocks), [0, 1, 3])
+
+    def test_collapsed_leaf_does_not_hide_following_blocks(self):
+        blocks = [Block(0, "A", collapsed=True), Block(0, "B")]
+        self.assertEqual(visible_block_indices(blocks), [0, 1])
+
+    def test_neighbors_skip_folded_descendants(self):
+        v = view((0, "A"), (1, "B"), (2, "C"), (0, "D"))
+        v.blocks[0].collapsed = True
+        self.assertEqual(v._visible_neighbor(0, +1), 3)
+        self.assertEqual(v._visible_neighbor(3, -1), 0)
+
+    def test_hidden_block_has_no_visible_neighbor(self):
+        v = view((0, "A"), (1, "B"), (0, "C"))
+        v.blocks[0].collapsed = True
+        self.assertIsNone(v._visible_neighbor(1, +1))
 
 
 class TestSelectionIndices(unittest.TestCase):
@@ -261,6 +303,13 @@ class TestHistory(unittest.TestCase):
         h.commit_structural(live, None)
         live[0].text = "MUTATED"
         self.assertEqual(h.undo_stack[0].blocks[0].text, "a")
+
+    def test_snapshot_preserves_fold_state(self):
+        h = History()
+        blocks = [Block(0, "parent", collapsed=True), Block(1, "child")]
+        h.commit_structural(blocks, None)
+        blocks[0].collapsed = False
+        self.assertTrue(h.undo_stack[0].blocks[0].collapsed)
 
     def test_cap_drops_oldest(self):
         h = History(cap=3)
