@@ -1,6 +1,13 @@
 import unittest
 
-from app import Block, BlocksView
+from app import (
+    Block,
+    BlocksView,
+    _block_task_state,
+    _task_markup,
+    task_state,
+    toggle_task_text,
+)
 from history import History
 
 
@@ -320,6 +327,32 @@ class TestCodeBlocks(unittest.TestCase):
         self.assertEqual(v.blocks[0].code_lang, "python")
         self.assertEqual(v.blocks[1].text, "a")
         self.assertIsNone(v.blocks[1].code_lang)
+
+
+class TestTasks(unittest.TestCase):
+    def test_recognizes_exact_logseq_prefixes(self):
+        self.assertEqual(task_state("TODO write tests"), "TODO")
+        self.assertEqual(task_state("DONE write tests"), "DONE")
+        self.assertIsNone(task_state("TODO"))
+        self.assertIsNone(task_state("todo write tests"))
+        self.assertIsNone(task_state("prefix TODO write tests"))
+
+    def test_toggle_preserves_everything_after_keyword(self):
+        self.assertEqual(toggle_task_text("TODO **ship** it"), "DONE **ship** it")
+        self.assertEqual(toggle_task_text("DONE **ship** it"), "TODO **ship** it")
+        self.assertIsNone(toggle_task_text("ship it"))
+
+    def test_code_blocks_do_not_become_tasks(self):
+        self.assertIsNone(_block_task_state(Block(0, "TODO example", code_lang="")))
+
+    def test_task_markup_keeps_prefix_and_inline_markdown(self):
+        todo = _task_markup("TODO **ship** it")
+        done = _task_markup("DONE **ship** it")
+        self.assertIn(">TODO</span> ", todo)
+        self.assertIn("<b>ship</b>", todo)
+        self.assertIn(">DONE</span> ", done)
+        self.assertIn('strikethrough="true"', done)
+        self.assertIn("<b>ship</b>", done)
 
 
 if __name__ == "__main__":

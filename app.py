@@ -27,6 +27,8 @@ DIM = (0.55, 0.55, 0.57)
 GUIDE = (0.87, 0.87, 0.89)
 SELECTION_BG = (0.83, 0.90, 0.99)
 CODE_BG = (0xfd / 255, 0xf6 / 255, 0xe3 / 255)
+TODO_ACCENT = (0.72, 0.45, 0.10)
+DONE_ACCENT = (0.27, 0.57, 0.38)
 CODE_BG_CSS = b"""
 textview.code-block, textview.code-block text {
     background-color: #fdf6e3;
@@ -34,6 +36,7 @@ textview.code-block, textview.code-block text {
 """
 
 CODE_FENCE_RE = re.compile(r"^```([a-zA-Z0-9_+\-]*)$")
+TASK_RE = re.compile(r"^(TODO|DONE) ")
 
 X0 = 32
 INDENT = 22
@@ -42,6 +45,8 @@ TEXT_PAD = 4
 TOP_PAD = 28
 HEADER_GAP = 8
 RIGHT_PAD = 16
+TASK_CHECKBOX_SIZE = 13
+TASK_CHECKBOX_GAP = 7
 
 
 @dataclass(eq=False)
@@ -58,6 +63,8 @@ class BlockLayout:
     height: float
     text_x: float
     text_width: float
+    checkbox_x: float | None = None
+    checkbox_y: float | None = None
 
 
 @dataclass
@@ -78,11 +85,59 @@ BLOCKS = [
     Block(1, "snapshot → PNG for feedback"),
     Block(0, "click a bullet to edit — tab away or click elsewhere to commit"),
     Block(0, "inline markdown: **bold**, *italic*, `code`"),
+    Block(0, "TODO try the new task checkbox"),
+    Block(0, "DONE preserve the literal **DONE** prefix"),
     Block(0, "multi-line block\n(shift+enter later; for now any \\n in text)\nrenders across lines"),
     Block(1, "styling **carries**\nacross *line* breaks too"),
     Block(0, "fenced code block:"),
     Block(1, "def hello(name):\n    print(f\"hello, {name}\")", code_lang="python"),
 ]
+
+
+def task_state(text):
+    match = TASK_RE.match(text)
+    return match.group(1) if match is not None else None
+
+
+def toggle_task_text(text):
+    state = task_state(text)
+    if state is None:
+        return None
+    replacement = "DONE" if state == "TODO" else "TODO"
+    return replacement + text[4:]
+
+
+def _task_markup(text):
+    state = task_state(text)
+    if state is None:
+        return runs_to_markup(tokenize_inline(text))
+
+    body_markup = runs_to_markup(tokenize_inline(text[5:]))
+    if state == "TODO":
+        label = (
+            '<span foreground="#8a5a00" background="#fff0c2" '
+            'weight="bold">TODO</span> '
+        )
+    else:
+        label = (
+            '<span foreground="#2f6f44" background="#def3e5" '
+            'weight="bold">DONE</span> '
+        )
+        body_markup = (
+            '<span foreground="#88898c" strikethrough="true">'
+            f"{body_markup}</span>"
+        )
+    return label + body_markup
+
+
+def _block_task_state(block):
+    if block.code_lang is not None:
+        return None
+    return task_state(block.text)
+
+
+def _block_markup(block):
+    return _task_markup(block.text)
 
 
 def resolve_body_font(widget=None):
@@ -161,6 +216,14 @@ def compute_layouts(pango_context, width, body_font, header_text, blocks):
     layouts = []
     for block in blocks:
         tx = X0 + block.level * INDENT + BULLET_GAP
+        checkbox_x = None
+        checkbox_y = None
+        if _block_task_state(block) is not None:
+            checkbox_x = tx
+            checkbox_y = y + TEXT_PAD + max(
+                0, (body_line_h - TASK_CHECKBOX_SIZE) / 2
+            )
+            tx += TASK_CHECKBOX_SIZE + TASK_CHECKBOX_GAP
         tw = max(1, width - tx - RIGHT_PAD)
 
         lay = Pango.Layout.new(pango_context)
@@ -171,7 +234,7 @@ def compute_layouts(pango_context, width, body_font, header_text, blocks):
             lay.set_text(block.text, -1)
         else:
             lay.set_font_description(body_font)
-            lay.set_markup(runs_to_markup(tokenize_inline(block.text)), -1)
+            lay.set_markup(_block_markup(block), -1)
         _, ext = lay.get_pixel_extents()
         content_h = max(ext.height, body_line_h)
         block_h = content_h + TEXT_PAD * 2
@@ -183,10 +246,47 @@ def compute_layouts(pango_context, width, body_font, header_text, blocks):
                 height=block_h,
                 text_x=tx,
                 text_width=tw,
+                checkbox_x=checkbox_x,
+                checkbox_y=checkbox_y,
             )
         )
         y += block_h
     return header_layout, layouts
+
+
+def _rounded_rectangle(cr, x, y, width, height, radius):
+    cr.new_sub_path()
+    cr.arc(x + width - radius, y + radius, radius, -1.5708, 0)
+    cr.arc(x + width - radius, y + height - radius, radius, 0, 1.5708)
+    cr.arc(x + radius, y + height - radius, radius, 1.5708, 3.14159)
+    cr.arc(x + radius, y + radius, radius, 3.14159, 4.71239)
+    cr.close_path()
+
+
+def _paint_task_checkbox(cr, bl, state):
+    x = bl.checkbox_x
+    y = bl.checkbox_y
+    size = TASK_CHECKBOX_SIZE
+    accent = DONE_ACCENT if state == "DONE" else TODO_ACCENT
+
+    cr.save()
+    _rounded_rectangle(cr, x + 0.5, y + 0.5, size - 1, size - 1, 2.5)
+    cr.set_line_width(1.5)
+    cr.set_source_rgb(*accent)
+    if state == "DONE":
+        cr.fill_preserve()
+    cr.stroke()
+
+    if state == "DONE":
+        cr.set_source_rgb(1, 1, 1)
+        cr.set_line_width(1.7)
+        cr.set_line_cap(cairo.LineCap.ROUND)
+        cr.set_line_join(cairo.LineJoin.ROUND)
+        cr.move_to(x + 3.0, y + 6.7)
+        cr.line_to(x + 5.4, y + 9.0)
+        cr.line_to(x + 10.2, y + 3.8)
+        cr.stroke()
+    cr.restore()
 
 
 def paint_blocks(
@@ -257,6 +357,10 @@ def paint_blocks(
         if block is skip_text_for:
             continue
 
+        state = _block_task_state(block)
+        if state is not None:
+            _paint_task_checkbox(cr, bl, state)
+
         layout.set_width(bl.text_width * Pango.SCALE)
         layout.set_wrap(Pango.WrapMode.WORD_CHAR)
         if block.code_lang is not None:
@@ -265,7 +369,7 @@ def paint_blocks(
             layout.set_text(block.text, -1)
         else:
             layout.set_font_description(body_font)
-            layout.set_markup(runs_to_markup(tokenize_inline(block.text)), -1)
+            layout.set_markup(_block_markup(block), -1)
         cr.set_source_rgb(*fg)
         cr.move_to(bl.text_x, bl.y + TEXT_PAD)
         PangoCairo.show_layout(cr, layout)
@@ -364,6 +468,15 @@ class BlocksView(Gtk.Overlay):
                 self.canvas.queue_draw()
                 return True
 
+        if target_bl is not None and self._checkbox_hit(
+            target_bl, event.x, event.y
+        ):
+            target_idx = self._block_index(target_bl.block)
+            if self._toggle_task_blocks([target_idx]):
+                self.selection = None
+                self.canvas.grab_focus()
+                return True
+
         if self.edit_view is not None:
             self._finish_editing()
         if self.selection is not None:
@@ -376,6 +489,19 @@ class BlocksView(Gtk.Overlay):
             self._drag_anchor_offset = cursor
             return True
         return False
+
+    def _checkbox_hit(self, bl, x, y):
+        if bl.checkbox_x is None or bl.checkbox_y is None:
+            return False
+        hit_pad = 4
+        return (
+            bl.checkbox_x - hit_pad
+            <= x
+            <= bl.checkbox_x + TASK_CHECKBOX_SIZE + hit_pad
+            and bl.checkbox_y - hit_pad
+            <= y
+            <= bl.checkbox_y + TASK_CHECKBOX_SIZE + hit_pad
+        )
 
     def _cursor_from_click(self, bl, click_x, click_y):
         body_font = resolve_body_font(self.canvas)
@@ -391,7 +517,7 @@ class BlocksView(Gtk.Overlay):
         else:
             lay.set_font_description(body_font)
             runs = tokenize_inline(block.text)
-            lay.set_markup(runs_to_markup(runs), -1)
+            lay.set_markup(_block_markup(block), -1)
 
         local_x = max(0, click_x - bl.text_x)
         local_y = max(0, click_y - (bl.y + TEXT_PAD))
@@ -446,9 +572,14 @@ class BlocksView(Gtk.Overlay):
         self._recompute_layouts(overlay_alloc.width)
         for bl in self.layouts:
             if bl.block is self.editing_block:
-                allocation.x = int(bl.text_x)
+                text_x = bl.text_x
+                text_width = bl.text_width
+                if bl.checkbox_x is not None:
+                    text_width += text_x - bl.checkbox_x
+                    text_x = bl.checkbox_x
+                allocation.x = int(text_x)
                 allocation.y = int(bl.y + TEXT_PAD)
-                allocation.width = int(bl.text_width)
+                allocation.width = int(text_width)
                 allocation.height = int(bl.height - TEXT_PAD * 2)
                 return True
         return False
@@ -546,6 +677,28 @@ class BlocksView(Gtk.Overlay):
         self._cancel_coalesce_timer()
         pre_blocks, pre_cursor = pre
         self.history.commit_structural(pre_blocks, pre_cursor)
+
+    def _toggle_task_blocks(self, indices):
+        targets = [
+            self.blocks[i]
+            for i in indices
+            if 0 <= i < len(self.blocks)
+            and _block_task_state(self.blocks[i]) is not None
+        ]
+        if not targets:
+            return False
+
+        pre = self._begin_structural()
+        if self.edit_view is not None:
+            self._finish_editing()
+
+        for block in targets:
+            block.text = toggle_task_text(block.text)
+
+        self._end_structural(pre)
+        self.canvas.queue_draw()
+        self.queue_resize()
+        return True
 
     def _commit_text_edit(self, *_):
         if self._suppress_text_snapshot or self.editing_block is None:
