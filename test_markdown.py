@@ -1,8 +1,6 @@
 import unittest
 
 from markdown import (
-    InlineParse,
-    InlineRun,
     parse_inline,
     runs_to_markup,
     source_offset_from_display,
@@ -52,14 +50,23 @@ class TestParseInline(unittest.TestCase):
         self.assertEqual(parsed.source_offset(-10), 0)
         self.assertEqual(parsed.source_offset(10), 4)
 
-    def test_lookup_uses_explicit_non_contiguous_mapping(self):
-        parsed = InlineParse(
-            runs=(InlineRun("a*b", 0, 4),),
-            display_text="a*b",
-            display_to_source=(0, 1, 3, 4),
-        )
+    def test_backslash_escape_uses_non_contiguous_mapping(self):
+        parsed = parse_inline(r"a\*b")
 
+        self.assertEqual(parsed.display_text, "a*b")
+        self.assertEqual(parsed.display_to_source, (0, 1, 3, 4))
         self.assertEqual(source_offset_from_display(parsed, 2), 3)
+
+    def test_backslash_only_escapes_ascii_punctuation(self):
+        parsed = parse_inline("\\a \\* \\\\")
+
+        self.assertEqual(parsed.display_text, "\\a * \\")
+
+    def test_escaped_markers_do_not_start_formatting(self):
+        parsed = parse_inline(r"\*literal\* and \`code\`")
+
+        self.assertEqual(parsed.display_text, "*literal* and `code`")
+        self.assertTrue(all(not run.style for run in parsed.runs))
 
 
 if __name__ == "__main__":

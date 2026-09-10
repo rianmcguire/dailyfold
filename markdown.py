@@ -2,11 +2,12 @@
 
 Block-level markdown is irrelevant here: documents are split into Block(level, text)
 at load time, so this module only sees the text inside one block. Supported:
-**bold**, *italic*, `code`. No nesting, no escapes (yet).
+**bold**, *italic*, `code`, and backslash escapes. No nesting yet.
 """
 
 from collections.abc import Iterable
 from dataclasses import dataclass, field
+import string
 from xml.sax.saxutils import escape as xml_escape
 
 
@@ -39,8 +40,13 @@ def parse_inline(source: str) -> InlineParse:
     i = 0
     plain_start = 0
 
-    def append_run(start: int, end: int, style=frozenset()) -> None:
-        text = source[start:end]
+    def append_run(
+        text: str,
+        start: int,
+        end: int,
+        style=frozenset(),
+        boundaries: tuple[int, ...] | None = None,
+    ) -> None:
         runs.append(InlineRun(text, start, end, style))
         display_parts.append(text)
 
@@ -49,22 +55,33 @@ def parse_inline(source: str) -> InlineParse:
         # leading edge of styled text places the editor cursor just inside its
         # opening marker. Keeping every boundary explicit lets future syntax
         # (escapes and links, for example) provide non-contiguous mappings.
-        display_to_source[-1] = start
-        display_to_source.extend(range(start + 1, end + 1))
+        if boundaries is None:
+            boundaries = tuple(range(start, end + 1))
+        display_to_source[-1] = boundaries[0]
+        display_to_source.extend(boundaries[1:])
+
+    def append_source_run(start: int, end: int, style=frozenset()) -> None:
+        append_run(source[start:end], start, end, style)
 
     def flush_plain(end: int) -> None:
         nonlocal plain_start
         if plain_start < end:
-            append_run(plain_start, end)
+            append_source_run(plain_start, end)
         plain_start = end
 
     while i < n:
         ch = source[i]
+        if ch == "\\" and i + 1 < n and source[i + 1] in string.punctuation:
+            flush_plain(i)
+            append_run(source[i + 1], i, i + 2, boundaries=(i, i + 2))
+            i += 2
+            plain_start = i
+            continue
         if ch == "`":
             j = source.find("`", i + 1)
             if j != -1 and j > i + 1:
                 flush_plain(i)
-                append_run(i + 1, j, frozenset({"code"}))
+                append_source_run(i + 1, j, frozenset({"code"}))
                 i = j + 1
                 plain_start = i
                 continue
@@ -72,7 +89,7 @@ def parse_inline(source: str) -> InlineParse:
             j = source.find("**", i + 2)
             if j != -1 and j > i + 2:
                 flush_plain(i)
-                append_run(i + 2, j, frozenset({"bold"}))
+                append_source_run(i + 2, j, frozenset({"bold"}))
                 i = j + 2
                 plain_start = i
                 continue
@@ -80,7 +97,7 @@ def parse_inline(source: str) -> InlineParse:
             j = source.find("*", i + 1)
             if j != -1 and j > i + 1:
                 flush_plain(i)
-                append_run(i + 1, j, frozenset({"italic"}))
+                append_source_run(i + 1, j, frozenset({"italic"}))
                 i = j + 1
                 plain_start = i
                 continue
