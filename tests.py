@@ -1,4 +1,5 @@
 import unittest
+from types import SimpleNamespace
 
 from app import (
     Block,
@@ -27,6 +28,9 @@ class _StubView:
     _shift_levels = BlocksView._shift_levels
     _move_range = BlocksView._move_range
     _visible_neighbor = BlocksView._visible_neighbor
+    _completes_edit_activation_click = (
+        BlocksView._completes_edit_activation_click
+    )
 
 
 def view(*levels_and_texts):
@@ -170,6 +174,61 @@ class TestSelectAll(unittest.TestCase):
     def test_no_selection_is_not_handled(self):
         v = view((0, "A"))
         self.assertFalse(v._expand_block_selection())
+
+
+class TestEditActivationDoubleClick(unittest.TestCase):
+    def setUp(self):
+        self.v = view((0, "alpha bravo"))
+        self.block = self.v.blocks[0]
+        self.v._edit_activation_click = (
+            1000,
+            50.0,
+            80.0,
+            self.block,
+            3,
+        )
+        self.v._double_click_thresholds = lambda: (250, 5)
+
+    def event(self, **changes):
+        values = {
+            "button": 1,
+            "time": 1200,
+            "x_root": 54.0,
+            "y_root": 76.0,
+        }
+        values.update(changes)
+        return SimpleNamespace(**values)
+
+    def test_accepts_second_click_within_gtk_thresholds(self):
+        self.assertTrue(
+            self.v._completes_edit_activation_click(
+                self.event(), self.block
+            )
+        )
+
+    def test_rejects_late_or_distant_click(self):
+        self.assertFalse(
+            self.v._completes_edit_activation_click(
+                self.event(time=1251), self.block
+            )
+        )
+        self.assertFalse(
+            self.v._completes_edit_activation_click(
+                self.event(x_root=56.0), self.block
+            )
+        )
+
+    def test_rejects_another_button_or_block(self):
+        self.assertFalse(
+            self.v._completes_edit_activation_click(
+                self.event(button=3), self.block
+            )
+        )
+        self.assertFalse(
+            self.v._completes_edit_activation_click(
+                self.event(), Block(0, "different")
+            )
+        )
 
 
 class TestClipboardFormat(unittest.TestCase):

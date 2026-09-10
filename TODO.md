@@ -2,10 +2,6 @@
 
 Everything we've discussed but haven't built yet. Grouped roughly in order of what we'd probably want next.
 
-## Editor
-
-- **Double click to select word** - when not focused. Logseq sort of achieves this, but it's tricky.
-
 ## Markdown rendering
 
 - **Code styling** — `<tt>` gets monospace but no background; once we have theme-aware colors, give code a subtle bg.

@@ -641,6 +641,7 @@ class BlocksView(Gtk.Overlay):
         self._suppress_text_snapshot = False
         self._drag_anchor_idx = None
         self._drag_anchor_offset = None
+        self._edit_activation_click = None
         self._clipboard_plain_text = None
         self._clipboard_html = None
         self._clipboard_payload = None
@@ -822,11 +823,71 @@ class BlocksView(Gtk.Overlay):
             self.canvas.queue_draw()
         if target_bl is not None:
             cursor = self._cursor_from_click(target_bl, event.x, event.y)
+            completes_double_click = self._completes_edit_activation_click(
+                event, target_bl.block
+            )
             self._start_editing(target_bl, cursor)
+            if completes_double_click:
+                self._select_word_at_offset(self.edit_view, cursor)
+                self._edit_activation_click = None
+            else:
+                self._remember_edit_activation_click(
+                    event, target_bl.block, cursor
+                )
             self._drag_anchor_idx = self._block_index(target_bl.block)
             self._drag_anchor_offset = cursor
             return True
         return False
+
+    def _remember_edit_activation_click(self, event, block, offset):
+        if (
+            event.button == 1
+            and event.type == Gdk.EventType.BUTTON_PRESS
+        ):
+            self._edit_activation_click = (
+                int(event.time),
+                float(event.x_root),
+                float(event.y_root),
+                block,
+                offset,
+            )
+        else:
+            self._edit_activation_click = None
+
+    def _completes_edit_activation_click(self, event, block):
+        first = self._edit_activation_click
+        if first is None or event.button != 1 or first[3] is not block:
+            return False
+
+        max_time, max_distance = self._double_click_thresholds()
+        elapsed = (int(event.time) - first[0]) & 0xFFFFFFFF
+        return (
+            elapsed <= max_time
+            and abs(float(event.x_root) - first[1]) <= max_distance
+            and abs(float(event.y_root) - first[2]) <= max_distance
+        )
+
+    def _double_click_thresholds(self):
+        settings = Gtk.Settings.get_default()
+        max_time = settings.get_property("gtk-double-click-time")
+        max_distance = settings.get_property("gtk-double-click-distance")
+        return max_time, max_distance
+
+    def _select_word_at_offset(self, tv, offset):
+        buf = tv.get_buffer()
+        location = buf.get_iter_at_offset(
+            max(0, min(offset, buf.get_char_count()))
+        )
+        start = location.copy()
+        end = location.copy()
+        if not Gtk.TextView.do_extend_selection(
+            tv, Gtk.TextExtendSelection.WORD, location, start, end
+        ):
+            return False
+        if start.compare(end) > 0:
+            start, end = end, start
+        buf.select_range(end, start)
+        return True
 
     def _checkbox_hit(self, bl, x, y):
         if bl.checkbox_x is None or bl.checkbox_y is None:
@@ -1803,9 +1864,18 @@ class BlocksView(Gtk.Overlay):
         return False
 
     def _on_textview_press(self, tv, event):
-        if event.type != Gdk.EventType.BUTTON_PRESS or event.button != 1:
+        if event.button != 1:
             return False
         if self.editing_block is None:
+            return False
+        if self._completes_edit_activation_click(event, self.editing_block):
+            offset = self._edit_activation_click[4]
+            self._edit_activation_click = None
+            self._drag_anchor_idx = None
+            self._drag_anchor_offset = None
+            return self._select_word_at_offset(tv, offset)
+        self._edit_activation_click = None
+        if event.type != Gdk.EventType.BUTTON_PRESS:
             return False
         self._drag_anchor_idx = self._block_index(self.editing_block)
         self._drag_anchor_offset = None
