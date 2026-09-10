@@ -6,7 +6,7 @@ Very early. See [TODO.md](TODO.md) for what's planned.
 
 The GUI currently loads `example.md` from the repository and automatically
 saves edits back to it after a short debounce. This hard-coded path is temporary
-until storage configuration and date navigation are added.
+until XDG storage configuration and calendar navigation are added.
 
 ## Dependencies
 

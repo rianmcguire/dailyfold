@@ -17,9 +17,8 @@ Everything we've discussed but haven't built yet. Grouped roughly in order of wh
 The current prototype loads and auto-saves the hard-coded `example.md`. Remaining:
 
 - **Scrolling**
-- **Storage location** — configurable; default to something like `~/Documents/dailyfold/` or XDG data dir.
-- **Date navigation** — jump to today, previous/next day via keyboard (probably Ctrl+. / Ctrl+, or similar). Always-visible "today" shortcut.
-- **Calendar day picker** — month-grid popup (or persistent sidebar?) to jump to an arbitrary date. Highlight days that have a file on disk so empty days are visually distinct. Arrow keys navigate the grid; Enter opens. Consider showing a small content preview or block-count per day on hover.
+- **Storage location** — configurable; default to `$XDG_DATA_HOME/dailyfold/` (or `~/.local/share/dailyfold/` when `XDG_DATA_HOME` is unset).
+- **Calendar day picker** — month-grid popup (or persistent sidebar?) for all date navigation. Include a Today button and render dates with an existing file in bold so empty days are visually distinct.
 - **Search** — cross-file full-text across all days. Triggered by keyboard shortcut (Ctrl+K / Ctrl+Shift+F). Modal/overlay with incremental results as you type; each result shows the date, the block, and surrounding context with the match highlighted. Enter jumps to the day + scrolls/focuses the block. Start naive (scan files on each query — fine up to thousands of days); add an index later if it gets slow. Scope: plain substring first, regex / token-based filtering later.
 - **Backlinks / page links / tags** — deferred; decide later whether to mimic Logseq here or do something simpler.
 
