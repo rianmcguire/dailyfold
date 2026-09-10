@@ -1,8 +1,10 @@
 import argparse
+import json
 import os
 import re
 import signal
 from dataclasses import dataclass
+from html import escape as html_escape
 
 import cairo
 import gi
@@ -37,6 +39,13 @@ textview.code-block, textview.code-block text {
 
 CODE_FENCE_RE = re.compile(r"^```([a-zA-Z0-9_+\-]*)$")
 TASK_RE = re.compile(r"^(TODO|DONE) ")
+CLIPBOARD_BULLET_RE = re.compile(r"^([ \t]*)[-*+] (.*)$")
+CLIPBOARD_CODE_FENCE_RE = re.compile(r"^```([a-zA-Z0-9_+\-]*)$")
+CLIPBOARD_BLOCKS_TARGET = "application/x-dailyfold-blocks+json"
+CLIPBOARD_HTML_TARGET = "text/html"
+CLIPBOARD_BLOCKS_INFO = 1
+CLIPBOARD_HTML_INFO = 2
+CLIPBOARD_TEXT_INFO = 3
 
 X0 = 32
 INDENT = 22
@@ -155,6 +164,218 @@ def visible_block_indices(blocks):
         if block.collapsed:
             hidden_below_level = block.level
     return visible
+
+
+def copy_blocks(blocks):
+    """Clone blocks and normalize them into a self-contained outline."""
+    if not blocks:
+        return []
+    base_level = blocks[0].level
+    return [
+        Block(
+            max(0, block.level - base_level),
+            block.text,
+            block.code_lang,
+            block.collapsed,
+        )
+        for block in blocks
+    ]
+
+
+def blocks_to_clipboard_text(blocks):
+    """Serialize blocks as a portable Markdown list."""
+    lines = []
+    for block in copy_blocks(blocks):
+        bullet_indent = "  " * block.level
+        continuation_indent = "  " * (block.level + 1)
+        if block.code_lang is not None:
+            lines.append(f"{bullet_indent}- ```{block.code_lang}")
+            lines.extend(continuation_indent + line for line in block.text.split("\n"))
+            lines.append(f"{continuation_indent}```")
+            continue
+
+        text_lines = block.text.split("\n")
+        lines.append(f"{bullet_indent}- {text_lines[0]}")
+        lines.extend(continuation_indent + line for line in text_lines[1:])
+    return "\n".join(lines)
+
+
+def _inline_html(text):
+    parts = []
+    for run in tokenize_inline(text):
+        value = html_escape(run.text).replace("\n", "<br>\n")
+        if "code" in run.style:
+            value = f"<code>{value}</code>"
+        if "italic" in run.style:
+            value = f"<em>{value}</em>"
+        if "bold" in run.style:
+            value = f"<strong>{value}</strong>"
+        parts.append(value)
+    return "".join(parts)
+
+
+def blocks_to_clipboard_html(blocks):
+    """Serialize blocks as a semantic nested HTML list."""
+    normalized = copy_blocks(blocks)
+    if not normalized:
+        return ""
+
+    def render_level(start, level):
+        parts = ["<ul>"]
+        i = start
+        while i < len(normalized):
+            block = normalized[i]
+            if block.level < level:
+                break
+            if block.level > level:
+                children, i = render_level(i, level + 1)
+                parts.append(children)
+                continue
+
+            if block.code_lang is not None:
+                language = (
+                    f' class="language-{html_escape(block.code_lang, quote=True)}"'
+                    if block.code_lang
+                    else ""
+                )
+                content = (
+                    f"<pre><code{language}>{html_escape(block.text)}</code></pre>"
+                )
+            else:
+                content = _inline_html(block.text)
+            parts.append(f"<li>{content}")
+            i += 1
+            if i < len(normalized) and normalized[i].level > level:
+                children, i = render_level(i, level + 1)
+                parts.append(children)
+            parts.append("</li>")
+        parts.append("</ul>")
+        return "".join(parts), i
+
+    rendered, _ = render_level(0, 0)
+    return rendered
+
+
+def blocks_to_clipboard_payload(blocks):
+    normalized = copy_blocks(blocks)
+    return json.dumps(
+        {
+            "version": 1,
+            "blocks": [
+                {
+                    "level": block.level,
+                    "text": block.text,
+                    "code_lang": block.code_lang,
+                    "collapsed": block.collapsed,
+                }
+                for block in normalized
+            ],
+        },
+        ensure_ascii=False,
+        separators=(",", ":"),
+    )
+
+
+def blocks_from_clipboard_payload(payload):
+    try:
+        value = json.loads(payload)
+    except (TypeError, ValueError):
+        return None
+    if not isinstance(value, dict) or value.get("version") != 1:
+        return None
+    raw_blocks = value.get("blocks")
+    if not isinstance(raw_blocks, list):
+        return None
+
+    blocks = []
+    for raw in raw_blocks:
+        if not isinstance(raw, dict):
+            return None
+        level = raw.get("level")
+        text = raw.get("text")
+        code_lang = raw.get("code_lang")
+        collapsed = raw.get("collapsed")
+        if isinstance(level, bool) or not isinstance(level, int) or level < 0:
+            return None
+        if not isinstance(text, str):
+            return None
+        if code_lang is not None and not isinstance(code_lang, str):
+            return None
+        if not isinstance(collapsed, bool):
+            return None
+        blocks.append(Block(level, text, code_lang, collapsed))
+    return blocks
+
+
+def _indent_width(indent):
+    return sum(2 if char == "\t" else 1 for char in indent)
+
+
+def _strip_indent(text, width):
+    consumed = 0
+    i = 0
+    while i < len(text) and consumed < width and text[i] in " \t":
+        consumed += 2 if text[i] == "\t" else 1
+        i += 1
+    return text[i:]
+
+
+def blocks_from_clipboard_text(text):
+    """Parse a Markdown list, or return non-list text as one block."""
+    if text is None:
+        return []
+    lines = text.split("\n")
+    blocks = []
+    indent_stack = []
+    block_indents = []
+    code_block = None
+    code_lines = []
+
+    for line in lines:
+        if code_block is not None:
+            body = _strip_indent(line, block_indents[-1] + 2)
+            if body == "```":
+                code_block.text = "\n".join(code_lines)
+                code_block = None
+                code_lines = []
+            else:
+                code_lines.append(body)
+            continue
+
+        match = CLIPBOARD_BULLET_RE.match(line)
+        if match is not None:
+            indent, body = match.groups()
+            width = _indent_width(indent)
+            if not indent_stack:
+                indent_stack.append(width)
+            elif width > indent_stack[-1]:
+                indent_stack.append(width)
+            else:
+                while indent_stack and width < indent_stack[-1]:
+                    indent_stack.pop()
+                if not indent_stack or width != indent_stack[-1]:
+                    indent_stack.append(width)
+            level = len(indent_stack) - 1
+            fence = CLIPBOARD_CODE_FENCE_RE.match(body)
+            block = Block(level, "", fence.group(1) if fence else None)
+            if fence is None:
+                block.text = body
+            blocks.append(block)
+            block_indents.append(width)
+            if fence is not None:
+                code_block = block
+                code_lines = []
+            continue
+
+        if blocks:
+            body = _strip_indent(line, block_indents[-1] + 2)
+            blocks[-1].text += "\n" + body
+
+    if not blocks:
+        return [Block(0, text)] if text else []
+    if code_block is not None:
+        code_block.text = "\n".join(code_lines)
+    return copy_blocks(blocks)
 
 
 def resolve_body_font(widget=None):
@@ -420,6 +641,9 @@ class BlocksView(Gtk.Overlay):
         self._suppress_text_snapshot = False
         self._drag_anchor_idx = None
         self._drag_anchor_offset = None
+        self._clipboard_plain_text = None
+        self._clipboard_html = None
+        self._clipboard_payload = None
 
         self.canvas = Gtk.DrawingArea()
         self.canvas.set_can_focus(True)
@@ -434,6 +658,29 @@ class BlocksView(Gtk.Overlay):
         self.canvas.connect("button-release-event", self._on_button_release)
         self.canvas.connect("motion-notify-event", self._on_canvas_motion)
         self.canvas.connect("key-press-event", self._on_canvas_key_press)
+        self.canvas.connect("selection-get", self._on_clipboard_selection_get)
+        self._clipboard_atoms = {
+            CLIPBOARD_BLOCKS_INFO: Gdk.Atom.intern(
+                CLIPBOARD_BLOCKS_TARGET, False
+            ),
+            CLIPBOARD_HTML_INFO: Gdk.Atom.intern(CLIPBOARD_HTML_TARGET, False),
+        }
+        clipboard_targets = [
+            (CLIPBOARD_BLOCKS_TARGET, CLIPBOARD_BLOCKS_INFO),
+            (CLIPBOARD_HTML_TARGET, CLIPBOARD_HTML_INFO),
+            ("text/plain;charset=utf-8", CLIPBOARD_TEXT_INFO),
+            ("text/plain", CLIPBOARD_TEXT_INFO),
+            ("UTF8_STRING", CLIPBOARD_TEXT_INFO),
+            ("TEXT", CLIPBOARD_TEXT_INFO),
+            ("STRING", CLIPBOARD_TEXT_INFO),
+        ]
+        for target, info in clipboard_targets:
+            Gtk.selection_add_target(
+                self.canvas,
+                Gdk.SELECTION_CLIPBOARD,
+                Gdk.Atom.intern(target, False),
+                info,
+            )
         self.add(self.canvas)
 
         self.connect("get-child-position", self._position_overlay)
@@ -1207,6 +1454,21 @@ class BlocksView(Gtk.Overlay):
     def _on_canvas_key_press(self, widget, event):
         state = event.state & Gtk.accelerator_get_default_mod_mask()
         if state == Gdk.ModifierType.CONTROL_MASK and event.keyval in (
+            Gdk.KEY_c,
+            Gdk.KEY_C,
+        ):
+            return self._copy_block_selection(cut=False)
+        if state == Gdk.ModifierType.CONTROL_MASK and event.keyval in (
+            Gdk.KEY_x,
+            Gdk.KEY_X,
+        ):
+            return self._copy_block_selection(cut=True)
+        if state == Gdk.ModifierType.CONTROL_MASK and event.keyval in (
+            Gdk.KEY_v,
+            Gdk.KEY_V,
+        ):
+            return self._paste_blocks_from_clipboard()
+        if state == Gdk.ModifierType.CONTROL_MASK and event.keyval in (
             Gdk.KEY_a,
             Gdk.KEY_A,
         ):
@@ -1288,6 +1550,84 @@ class BlocksView(Gtk.Overlay):
             )
 
         return False
+
+    def _copy_block_selection(self, cut):
+        if self.selection is None:
+            return False
+        indices = self._selection_indices()
+        selected = [self.blocks[i] for i in indices]
+        copied = copy_blocks(selected)
+        self._clipboard_plain_text = blocks_to_clipboard_text(copied)
+        self._clipboard_html = blocks_to_clipboard_html(copied)
+        self._clipboard_payload = blocks_to_clipboard_payload(copied)
+        if not Gtk.selection_owner_set(
+            self.canvas, Gdk.SELECTION_CLIPBOARD, Gdk.CURRENT_TIME
+        ):
+            Gtk.Clipboard.get(Gdk.SELECTION_CLIPBOARD).set_text(
+                self._clipboard_plain_text, -1
+            )
+        if cut:
+            self._handle_selection_delete()
+        return True
+
+    def _on_clipboard_selection_get(self, widget, selection_data, info, time):
+        if info == CLIPBOARD_BLOCKS_INFO and self._clipboard_payload is not None:
+            data = self._clipboard_payload.encode("utf-8")
+            selection_data.set(self._clipboard_atoms[info], 8, list(data))
+        elif info == CLIPBOARD_HTML_INFO and self._clipboard_html is not None:
+            data = self._clipboard_html.encode("utf-8")
+            selection_data.set(self._clipboard_atoms[info], 8, list(data))
+        elif self._clipboard_plain_text is not None:
+            selection_data.set_text(self._clipboard_plain_text, -1)
+
+    def _paste_blocks_from_clipboard(self):
+        clipboard = Gtk.Clipboard.get(Gdk.SELECTION_CLIPBOARD)
+        blocks_atom = self._clipboard_atoms[CLIPBOARD_BLOCKS_INFO]
+        pasted = None
+        if clipboard.wait_is_target_available(blocks_atom):
+            selection_data = clipboard.wait_for_contents(blocks_atom)
+            if selection_data is not None:
+                raw = selection_data.get_data()
+                if raw is not None:
+                    try:
+                        payload = bytes(raw).decode("utf-8")
+                    except (TypeError, UnicodeDecodeError):
+                        payload = None
+                    pasted = blocks_from_clipboard_payload(payload)
+
+        if pasted is None:
+            text = clipboard.wait_for_text()
+            if text is None:
+                return True
+            pasted = blocks_from_clipboard_text(text)
+        if not pasted:
+            return True
+
+        pre = self._begin_structural()
+        if self.selection is None:
+            insert_idx = len(self.blocks)
+            destination_level = 0
+        else:
+            indices = self._selection_indices()
+            insert_idx = indices[-1] + 1
+            destination_level = min(self.blocks[i].level for i in indices)
+
+        inserted = [
+            Block(
+                block.level + destination_level,
+                block.text,
+                block.code_lang,
+                block.collapsed,
+            )
+            for block in pasted
+        ]
+        self.blocks[insert_idx:insert_idx] = inserted
+        self.selection = (insert_idx, insert_idx + len(inserted) - 1)
+        self._end_structural(pre)
+        self.canvas.grab_focus()
+        self.canvas.queue_draw()
+        self.queue_resize()
+        return True
 
     def _expand_block_selection(self):
         if self.selection is None or not self.blocks:
