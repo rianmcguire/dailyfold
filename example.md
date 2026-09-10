@@ -5,6 +5,11 @@
   - snapshot → PNG for feedback
 - click a bullet to edit — tab away or click elsewhere to commit
 - inline markdown: **bold**, *italic*, `code`
+- combined formatting: **bold with *nested italic* and ~~strikethrough~~**
+- escaped punctuation: \*literal asterisks\* and \`literal backticks\`
+- Markdown link: [Dailyfold docs](https://example.com/dailyfold)
+- autolinks: <https://example.com/docs> and <hello@example.com>
+- bare URL: https://example.com/docs?q=markdown
 - TODO try the new task checkbox
 - DONE preserve the literal **DONE** prefix
 - multi-line block

@@ -60,16 +60,6 @@ Open `http://<host>:8086/` in a browser.
 
 To restart after code changes, kill the `python3 app.py` process and re-run it; `broadwayd` can stay up.
 
-### Snapshot mode
-
-Render the current `BLOCKS` to a PNG without opening a window:
-
-```
-python3 app.py --snapshot [path]
-```
-
-Defaults to `snapshots/latest.png`. Useful for quick visual diffs in CI or when no display is available.
-
 ### Native UI harness (for agent-driven testing)
 
 The repo includes a persistent Xvfb harness that sends native X11 mouse and

@@ -93,24 +93,6 @@ class HeaderLayout:
     text_width: float
 
 
-HEADER = "Wednesday, 24 April 2026"
-
-BLOCKS = [
-    Block(0, "dailyfold — hello, **world**"),
-    Block(1, "GTK3 window open"),
-    Block(1, "*custom* Cairo rendering"),
-    Block(1, "snapshot → PNG for feedback"),
-    Block(0, "click a bullet to edit — tab away or click elsewhere to commit"),
-    Block(0, "inline markdown: **bold**, *italic*, `code`"),
-    Block(0, "TODO try the new task checkbox"),
-    Block(0, "DONE preserve the literal **DONE** prefix"),
-    Block(0, "multi-line block\n(shift+enter later; for now any \\n in text)\nrenders across lines"),
-    Block(1, "styling **carries**\nacross *line* breaks too"),
-    Block(0, "fenced code block:"),
-    Block(1, "def hello(name):\n    print(f\"hello, {name}\")", code_lang="python"),
-]
-
-
 def format_journal_date(day):
     return f"{day.strftime('%A')}, {day.day} {day.strftime('%B %Y')}"
 
@@ -2088,34 +2070,8 @@ class AppWindow(Gtk.Window):
         Gtk.main_quit()
 
 
-DEFAULT_SNAPSHOT = os.path.join(os.path.dirname(__file__), "snapshots", "latest.png")
-
-
-def snapshot(path, width=720, height=480):
-    os.makedirs(os.path.dirname(path) or ".", exist_ok=True)
-    surface = cairo.ImageSurface(cairo.FORMAT_ARGB32, width, height)
-    cr = cairo.Context(surface)
-    body_font = resolve_body_font()
-    pango_context = PangoCairo.create_layout(cr).get_context()
-    header_layout, layouts = compute_layouts(
-        pango_context, width, body_font, HEADER, BLOCKS
-    )
-    paint_blocks(cr, width, height, body_font, header_layout, layouts)
-    surface.write_to_png(path)
-
-
 def main():
     p = argparse.ArgumentParser()
-    p.add_argument(
-        "--snapshot",
-        nargs="?",
-        const=DEFAULT_SNAPSHOT,
-        default=None,
-        metavar="PATH",
-        help=f"render to PNG and exit (default: {DEFAULT_SNAPSHOT})",
-    )
-    p.add_argument("--width", type=int, default=720)
-    p.add_argument("--height", type=int, default=480)
     p.add_argument(
         "--data-dir",
         default=None,
@@ -2126,10 +2082,6 @@ def main():
         ),
     )
     args = p.parse_args()
-
-    if args.snapshot:
-        snapshot(args.snapshot, args.width, args.height)
-        return
 
     data_dir = args.data_dir or default_data_dir()
     win = AppWindow(data_dir)
