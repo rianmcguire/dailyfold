@@ -1,5 +1,6 @@
-"""Logseq-compatible Markdown loading and atomic file saving."""
+"""Logseq-compatible Markdown loading and daily journal storage."""
 
+from datetime import date
 import os
 import re
 import stat
@@ -13,6 +14,8 @@ BLOCK_RE = re.compile(r"^([ \t]*)-(?:[ \t](.*))?$")
 CODE_FENCE_RE = re.compile(r"^```([a-zA-Z0-9_+\-]*)$")
 PROPERTY_RE = re.compile(r"^[^:\s][^:]*::(?:\s.*)?$")
 COLLAPSED_PROPERTY_RE = re.compile(r"^collapsed::\s*(.*)$", re.IGNORECASE)
+JOURNAL_FILE_RE = re.compile(r"^(\d{4})-(\d{2})-(\d{2})\.md$")
+DATA_DIR_ENV = "DAILYFOLD_DATA_DIR"
 
 
 @dataclass
@@ -20,6 +23,49 @@ class MarkdownDocument:
     blocks: list[Block] = field(default_factory=list)
     preamble: list[str] = field(default_factory=list)
     trailing_newline: bool = True
+
+
+def default_data_dir(environ=None):
+    """Return the configured journal directory, following the XDG convention."""
+    environ = os.environ if environ is None else environ
+    configured = environ.get(DATA_DIR_ENV)
+    if configured:
+        return os.path.abspath(os.path.expanduser(configured))
+
+    xdg_data_home = environ.get("XDG_DATA_HOME")
+    if not xdg_data_home:
+        xdg_data_home = os.path.join(os.path.expanduser("~"), ".local", "share")
+    return os.path.abspath(
+        os.path.join(os.path.expanduser(xdg_data_home), "dailyfold")
+    )
+
+
+def journal_path(data_dir, day):
+    """Return the Markdown path for a calendar day."""
+    return os.path.join(
+        os.path.abspath(os.path.expanduser(data_dir)), f"{day.isoformat()}.md"
+    )
+
+
+def journal_dates(data_dir):
+    """Return all valid ISO-dated Markdown pages in *data_dir*."""
+    try:
+        names = os.listdir(data_dir)
+    except FileNotFoundError:
+        return set()
+
+    days = set()
+    for name in names:
+        match = JOURNAL_FILE_RE.match(name)
+        if match is None:
+            continue
+        try:
+            day = date(*(int(part) for part in match.groups()))
+        except ValueError:
+            continue
+        if os.path.isfile(os.path.join(data_dir, name)):
+            days.add(day)
+    return days
 
 
 def _indent_width(indent):

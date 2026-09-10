@@ -1,3 +1,4 @@
+from datetime import date
 import os
 import tempfile
 import unittest
@@ -5,6 +6,9 @@ import unittest
 from model import Block
 from storage import (
     MarkdownDocument,
+    default_data_dir,
+    journal_dates,
+    journal_path,
     load_document,
     parse_document,
     save_document,
@@ -173,6 +177,58 @@ class TestFileIO(unittest.TestCase):
                     if name != "example.md"
                 ],
                 [],
+            )
+
+
+class TestJournalStorage(unittest.TestCase):
+    def test_data_dir_environment_override_wins(self):
+        self.assertEqual(
+            default_data_dir(
+                {
+                    "DAILYFOLD_DATA_DIR": "/tmp/my-journal",
+                    "XDG_DATA_HOME": "/tmp/ignored",
+                }
+            ),
+            "/tmp/my-journal",
+        )
+
+    def test_data_dir_uses_xdg_location(self):
+        self.assertEqual(
+            default_data_dir({"XDG_DATA_HOME": "/tmp/app-data"}),
+            "/tmp/app-data/dailyfold",
+        )
+
+    def test_data_dir_falls_back_to_local_share(self):
+        self.assertEqual(
+            default_data_dir({}),
+            os.path.abspath(
+                os.path.join(os.path.expanduser("~"), ".local", "share", "dailyfold")
+            ),
+        )
+
+    def test_journal_path_uses_iso_date(self):
+        self.assertEqual(
+            journal_path("/tmp/journal", date(2026, 9, 11)),
+            "/tmp/journal/2026-09-11.md",
+        )
+
+    def test_lists_only_valid_dated_markdown_files(self):
+        with tempfile.TemporaryDirectory() as directory:
+            for name in (
+                "2026-09-11.md",
+                "2026-02-29.md",
+                "notes.md",
+                "2026-09-11.txt",
+            ):
+                with open(os.path.join(directory, name), "w", encoding="utf-8"):
+                    pass
+            os.mkdir(os.path.join(directory, "2026-09-12.md"))
+            self.assertEqual(journal_dates(directory), {date(2026, 9, 11)})
+
+    def test_missing_data_dir_has_no_journal_dates(self):
+        with tempfile.TemporaryDirectory() as directory:
+            self.assertEqual(
+                journal_dates(os.path.join(directory, "missing")), set()
             )
 
 
