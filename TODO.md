@@ -12,7 +12,6 @@ The app now stores one ISO-dated Markdown file per day in an XDG data directory,
 with a configurable override, a persistent calendar sidebar, and a scrolling
 editor. Remaining:
 
-- **Search** — cross-file full-text across all days. Triggered by keyboard shortcut (Ctrl+K / Ctrl+Shift+F). Modal/overlay with incremental results as you type; each result shows the date, the block, and surrounding context with the match highlighted. Enter jumps to the day + scrolls/focuses the block. Start naive (scan files on each query — fine up to thousands of days); add an index later if it gets slow. Scope: plain substring first, regex / token-based filtering later.
 - **Backlinks / page links / tags** — deferred; decide later whether to mimic Logseq here or do something simpler.
 
 ## Deferred (explicit not-now)

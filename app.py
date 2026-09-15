@@ -27,6 +27,7 @@ from markdown import (
     source_offset_from_display,
 )
 from model import Block
+from search import search_journals
 from storage import (
     MarkdownDocument,
     default_data_dir,
@@ -74,6 +75,8 @@ TASK_CHECKBOX_GAP = 7
 SIDEBAR_WIDTH = 230
 CODE_INDENT_WIDTH = 4
 THIN_SPACE = "\u2009"
+SEARCH_MATCH_BG = "#fff0a8"
+SEARCH_MATCH_FG = "#222222"
 
 
 @dataclass
@@ -450,6 +453,24 @@ def _apply_code_textview_style(tv, on):
         ctx.remove_provider(_code_css_provider())
 
 
+def _search_result_markup(text, query):
+    """Return escaped, single-line text with every query match highlighted."""
+    display_text = " ".join(text.splitlines())
+    pattern = re.compile(re.escape(query), re.IGNORECASE)
+    parts = []
+    position = 0
+    for match in pattern.finditer(display_text):
+        parts.append(html_escape(display_text[position : match.start()]))
+        parts.append(
+            f'<span background="{SEARCH_MATCH_BG}" '
+            f'foreground="{SEARCH_MATCH_FG}">'
+            f"{html_escape(match.group(0))}</span>"
+        )
+        position = match.end()
+    parts.append(html_escape(display_text[position:]))
+    return "".join(parts)
+
+
 def compute_layouts(pango_context, width, body_font, header_text, blocks):
     header_font = _header_font_of(body_font)
 
@@ -794,6 +815,47 @@ class BlocksView(Gtk.Overlay):
 
     def ensure_block_visible(self, block):
         GLib.idle_add(self._ensure_block_visible, block)
+
+    def focus_search_result(self, block_index, match_start, match_end):
+        """Reveal a search hit, enter editing, and select its first match."""
+        if not (0 <= block_index < len(self.blocks)):
+            return False
+
+        target = self.blocks[block_index]
+        ancestor_level = target.level
+        collapsed_ancestors = []
+        for index in range(block_index - 1, -1, -1):
+            block = self.blocks[index]
+            if block.level < ancestor_level:
+                if block.collapsed:
+                    collapsed_ancestors.append(block)
+                ancestor_level = block.level
+                if ancestor_level == 0:
+                    break
+
+        if collapsed_ancestors:
+            pre = self._begin_structural()
+            for block in collapsed_ancestors:
+                block.collapsed = False
+            self._end_structural(pre)
+
+        self._finish_editing()
+        self.selection = None
+        self._recompute_layouts(self.canvas.get_allocation().width)
+        layout = next(
+            (item for item in self.layouts if item.block is target),
+            None,
+        )
+        if layout is None:
+            return False
+
+        self._start_editing(layout, match_start)
+        buffer = self.edit_view.get_buffer()
+        start = buffer.get_iter_at_offset(match_start)
+        end = buffer.get_iter_at_offset(match_end)
+        buffer.select_range(start, end)
+        self.ensure_block_visible(target)
+        return True
 
     def _on_draw(self, widget, cr):
         alloc = widget.get_allocation()
@@ -2199,6 +2261,159 @@ class BlocksView(Gtk.Overlay):
         self.canvas.queue_draw()
 
 
+class SearchDialog(Gtk.Dialog):
+    """Keyboard-first cross-journal search palette."""
+
+    def __init__(self, parent, data_dir):
+        super().__init__(title="Search", transient_for=parent, modal=True)
+        self.data_dir = data_dir
+        self.selected_result = None
+        self.result_rows = []
+
+        self.set_default_size(680, 440)
+        self.set_position(Gtk.WindowPosition.CENTER_ON_PARENT)
+        self.add_button("Close", Gtk.ResponseType.CANCEL)
+
+        content = self.get_content_area()
+        content.set_spacing(10)
+        content.set_border_width(14)
+
+        self.entry = Gtk.SearchEntry()
+        self.entry.set_placeholder_text("Search blocks")
+        self.entry.connect("search-changed", self._on_search_changed)
+        self.entry.connect("key-press-event", self._on_entry_key_press)
+        content.pack_start(self.entry, False, False, 0)
+
+        self.scroller = Gtk.ScrolledWindow()
+        self.scroller.set_policy(
+            Gtk.PolicyType.NEVER,
+            Gtk.PolicyType.AUTOMATIC,
+        )
+        self.scroller.set_hexpand(True)
+        self.scroller.set_vexpand(True)
+        content.pack_start(self.scroller, True, True, 0)
+
+        self.results = Gtk.ListBox()
+        self.results.set_selection_mode(Gtk.SelectionMode.SINGLE)
+        self.results.set_activate_on_single_click(True)
+        self.results.connect("row-activated", self._on_row_activated)
+        self.scroller.add(self.results)
+
+        self.status = Gtk.Label(label="Type to search every journal")
+        self.status.set_xalign(0)
+        self.status.get_style_context().add_class("dim-label")
+        content.pack_start(self.status, False, False, 0)
+
+        self.show_all()
+        self.entry.grab_focus()
+
+    def _clear_results(self):
+        for child in self.results.get_children():
+            self.results.remove(child)
+        self.result_rows = []
+
+    def _on_search_changed(self, entry):
+        query = entry.get_text()
+        self._clear_results()
+        if not query:
+            self.status.set_text("Type to search every journal")
+            return
+
+        try:
+            matches = search_journals(self.data_dir, query)
+        except OSError as error:
+            self.status.set_text(f"Could not search journals: {error}")
+            return
+
+        for result in matches:
+            row = self._result_row(result, query)
+            self.results.add(row)
+            self.result_rows.append(row)
+
+        if matches:
+            count = len(matches)
+            self.status.set_text(f"{count} result{'s' if count != 1 else ''}")
+            self.results.select_row(self.result_rows[0])
+        else:
+            self.status.set_text("No matching blocks")
+        self.results.show_all()
+
+    def _result_row(self, result, query):
+        row = Gtk.ListBoxRow()
+        row.search_result = result
+
+        box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=3)
+        box.set_margin_top(8)
+        box.set_margin_bottom(8)
+        box.set_margin_start(10)
+        box.set_margin_end(10)
+        row.add(box)
+
+        breadcrumb_parts = [format_journal_date(result.day)]
+        breadcrumb_parts.extend(
+            part for part in result.ancestors if part
+        )
+        breadcrumb = Gtk.Label(label=" › ".join(breadcrumb_parts))
+        breadcrumb.set_xalign(0)
+        breadcrumb.set_ellipsize(Pango.EllipsizeMode.MIDDLE)
+        breadcrumb.get_style_context().add_class("dim-label")
+        box.pack_start(breadcrumb, False, False, 0)
+
+        matched_block = Gtk.Label()
+        matched_block.set_xalign(0)
+        matched_block.set_line_wrap(True)
+        matched_block.set_line_wrap_mode(Pango.WrapMode.WORD_CHAR)
+        matched_block.set_lines(2)
+        matched_block.set_ellipsize(Pango.EllipsizeMode.END)
+        matched_block.set_markup(_search_result_markup(result.text, query))
+        box.pack_start(matched_block, False, False, 0)
+        return row
+
+    def _on_row_activated(self, listbox, row):
+        self.selected_result = row.search_result
+        self.response(Gtk.ResponseType.OK)
+
+    def _move_selection(self, direction):
+        if not self.result_rows:
+            return
+        selected = self.results.get_selected_row()
+        if selected is None:
+            index = 0 if direction > 0 else len(self.result_rows) - 1
+        else:
+            index = self.result_rows.index(selected)
+            index = max(0, min(len(self.result_rows) - 1, index + direction))
+        row = self.result_rows[index]
+        self.results.select_row(row)
+
+        allocation = row.get_allocation()
+        adjustment = self.scroller.get_vadjustment()
+        if allocation.y < adjustment.get_value():
+            adjustment.set_value(allocation.y)
+        elif allocation.y + allocation.height > (
+            adjustment.get_value() + adjustment.get_page_size()
+        ):
+            adjustment.set_value(
+                allocation.y + allocation.height - adjustment.get_page_size()
+            )
+
+    def _on_entry_key_press(self, entry, event):
+        if event.keyval == Gdk.KEY_Down:
+            self._move_selection(+1)
+            return True
+        if event.keyval == Gdk.KEY_Up:
+            self._move_selection(-1)
+            return True
+        if event.keyval in (Gdk.KEY_Return, Gdk.KEY_KP_Enter):
+            row = self.results.get_selected_row()
+            if row is not None:
+                self._on_row_activated(self.results, row)
+                return True
+        if event.keyval == Gdk.KEY_Escape:
+            self.response(Gtk.ResponseType.CANCEL)
+            return True
+        return False
+
+
 class AppWindow(Gtk.Window):
     def __init__(self, data_dir, initial_day=None):
         super().__init__(title="dailyfold")
@@ -2213,6 +2428,7 @@ class AppWindow(Gtk.Window):
         self.set_default_size(920, 600)
         self.connect("delete-event", self._on_delete)
         self.connect("destroy", self._on_destroy)
+        self.connect("key-press-event", self._on_window_key_press)
 
         root = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL)
         self.add(root)
@@ -2296,6 +2512,43 @@ class AppWindow(Gtk.Window):
         if self._open_day(today):
             self._select_calendar_day(today)
             self._refresh_calendar_marks()
+
+    def _on_window_key_press(self, window, event):
+        state = event.state & Gtk.accelerator_get_default_mod_mask()
+        search_modifiers = (
+            Gdk.ModifierType.CONTROL_MASK | Gdk.ModifierType.SHIFT_MASK
+        )
+        if state != search_modifiers or event.keyval not in (
+            Gdk.KEY_f,
+            Gdk.KEY_F,
+        ):
+            return False
+        self._show_search()
+        return True
+
+    def _show_search(self):
+        if not self._save_current():
+            self._show_error(
+                "Could not save this journal page",
+                f"Search was not opened. Check that {self.file_path} is writable.",
+            )
+            return
+
+        dialog = SearchDialog(self, self.data_dir)
+        response = dialog.run()
+        result = dialog.selected_result
+        dialog.destroy()
+        if response != Gtk.ResponseType.OK or result is None:
+            return
+
+        if self._open_day(result.day):
+            self._select_calendar_day(result.day)
+            self._refresh_calendar_marks()
+            self.view.focus_search_result(
+                result.block_index,
+                result.match_start,
+                result.match_end,
+            )
 
     def _open_day(self, day):
         if day == self.current_day:

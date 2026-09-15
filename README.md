@@ -8,6 +8,10 @@ The GUI opens today's journal, automatically saves edits after a short debounce,
 and uses one `yyyy_mm_dd.md` Markdown file per day. The calendar sidebar navigates
 between days and marks dates that already have a file.
 
+Press `Ctrl+Shift+F` to search block text across every journal. Results are shown
+newest day first with their date and ancestor blocks as breadcrumb context. Open
+a result to jump to the block with the matching text selected.
+
 Inline Markdown supports `**bold**`, `*italic*`, `` `code` ``, `~~strikethrough~~`,
 backslash escapes, `[label](destination)` links, angle-bracket autolinks, and bare
 HTTP(S) URLs. Emphasis and strikethrough can be nested.
