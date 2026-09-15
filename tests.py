@@ -14,6 +14,7 @@ from app import (
     blocks_to_clipboard_text,
     copy_blocks,
     format_journal_date,
+    link_from_paste,
     task_state,
     toggle_task_text,
     visible_block_indices,
@@ -70,6 +71,36 @@ class TestJournalDateFormatting(unittest.TestCase):
             format_journal_date(date(2026, 9, 14)),
             "2026-09-14 Monday",
         )
+
+
+class TestLinkFromPaste(unittest.TestCase):
+    def test_wraps_selected_text_in_markdown_link(self):
+        self.assertEqual(
+            link_from_paste("Dailyfold docs", "https://example.com/docs"),
+            "[Dailyfold docs](https://example.com/docs)",
+        )
+
+    def test_accepts_clipboard_line_ending(self):
+        self.assertEqual(
+            link_from_paste("docs", "https://example.com\n"),
+            "[docs](https://example.com)",
+        )
+
+    def test_escapes_link_syntax(self):
+        self.assertEqual(
+            link_from_paste("array[index]", "https://example.com/a_(b)"),
+            r"[array[index\]](https://example.com/a_\(b\))",
+        )
+
+    def test_rejects_plain_text_and_partial_url_matches(self):
+        self.assertIsNone(link_from_paste("label", "not a URL"))
+        self.assertIsNone(
+            link_from_paste("label", "See https://example.com")
+        )
+        self.assertIsNone(link_from_paste("label", "https://example.com."))
+
+    def test_requires_selected_text(self):
+        self.assertIsNone(link_from_paste("", "https://example.com"))
 
 
 class TestAppendAreaHit(unittest.TestCase):

@@ -118,6 +118,29 @@ def toggle_task_text(text):
     return replacement + text[4:]
 
 
+def link_from_paste(selected_text, clipboard_text):
+    """Return a Markdown link when the clipboard contains one web URL."""
+    if not selected_text or clipboard_text is None:
+        return None
+    url = clipboard_text.strip()
+    inline = parse_inline(url)
+    if (
+        not url
+        or not inline.runs
+        or inline.display_text != url
+        or any(run.link_url != url for run in inline.runs)
+    ):
+        return None
+
+    label = selected_text.replace("]", r"\]")
+    destination = (
+        url.replace("\\", r"\\")
+        .replace("(", r"\(")
+        .replace(")", r"\)")
+    )
+    return f"[{label}]({destination})"
+
+
 def _task_markup(text, inline=None):
     state = task_state(text)
     if state is None:
@@ -1051,6 +1074,7 @@ class BlocksView(Gtk.Overlay):
         buf.connect("changed", self._on_buffer_changed)
         tv.connect("focus-out-event", self._on_edit_focus_out)
         tv.connect("key-press-event", self._on_key_press)
+        tv.connect("paste-clipboard", self._on_textview_paste)
         tv.connect("button-press-event", self._on_textview_press)
         tv.connect("motion-notify-event", self._on_textview_motion)
         tv.connect("button-release-event", self._on_textview_release)
@@ -1104,13 +1128,6 @@ class BlocksView(Gtk.Overlay):
         ):
             if self._buffer_is_fully_selected(tv.get_buffer()):
                 return self._enter_selection_mode()
-            return False
-        if state == Gdk.ModifierType.CONTROL_MASK and event.keyval in (
-            Gdk.KEY_v,
-            Gdk.KEY_V,
-        ):
-            if self._paste_internal_blocks_from_editor():
-                return True
             return False
         if state == Gdk.ModifierType.CONTROL_MASK and event.keyval in (
             Gdk.KEY_z,
@@ -1183,6 +1200,34 @@ class BlocksView(Gtk.Overlay):
             return False
         sel_start, sel_end = selected
         return sel_start.equal(start) and sel_end.equal(end)
+
+    def _linkify_selection_from_clipboard(self, tv):
+        if self.editing_block.code_lang is not None:
+            return False
+        buf = tv.get_buffer()
+        selected = buf.get_selection_bounds()
+        if not selected:
+            return False
+        start, end = selected
+        label = buf.get_text(start, end, True)
+        clipboard = Gtk.Clipboard.get(Gdk.SELECTION_CLIPBOARD)
+        replacement = link_from_paste(label, clipboard.wait_for_text())
+        if replacement is None:
+            return False
+
+        buf.begin_user_action()
+        buf.delete(start, end)
+        buf.insert(start, replacement)
+        buf.place_cursor(start)
+        buf.end_user_action()
+        return True
+
+    def _on_textview_paste(self, tv):
+        if (
+            self._paste_internal_blocks_from_editor()
+            or self._linkify_selection_from_clipboard(tv)
+        ):
+            tv.stop_emission_by_name("paste-clipboard")
 
     def _capture_cursor(self):
         if self.editing_block is not None:
