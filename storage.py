@@ -14,7 +14,7 @@ BLOCK_RE = re.compile(r"^([ \t]*)-(?:[ \t](.*))?$")
 CODE_FENCE_RE = re.compile(r"^```([a-zA-Z0-9_+\-]*)$")
 PROPERTY_RE = re.compile(r"^[^:\s][^:]*::(?:\s.*)?$")
 COLLAPSED_PROPERTY_RE = re.compile(r"^collapsed::\s*(.*)$", re.IGNORECASE)
-JOURNAL_FILE_RE = re.compile(r"^(\d{4})-(\d{2})-(\d{2})\.md$")
+JOURNAL_FILE_RE = re.compile(r"^(\d{4})_(\d{2})_(\d{2})\.md$")
 DATA_DIR_ENV = "DAILYFOLD_DATA_DIR"
 
 
@@ -43,12 +43,13 @@ def default_data_dir(environ=None):
 def journal_path(data_dir, day):
     """Return the Markdown path for a calendar day."""
     return os.path.join(
-        os.path.abspath(os.path.expanduser(data_dir)), f"{day.isoformat()}.md"
+        os.path.abspath(os.path.expanduser(data_dir)),
+        f"{day.strftime('%Y_%m_%d')}.md",
     )
 
 
 def journal_dates(data_dir):
-    """Return all valid ISO-dated Markdown pages in *data_dir*."""
+    """Return all valid Logseq-dated Markdown pages in *data_dir*."""
     try:
         names = os.listdir(data_dir)
     except FileNotFoundError:

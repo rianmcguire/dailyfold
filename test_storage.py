@@ -206,23 +206,24 @@ class TestJournalStorage(unittest.TestCase):
             ),
         )
 
-    def test_journal_path_uses_iso_date(self):
+    def test_journal_path_uses_logseq_date(self):
         self.assertEqual(
             journal_path("/tmp/journal", date(2026, 9, 11)),
-            "/tmp/journal/2026-09-11.md",
+            "/tmp/journal/2026_09_11.md",
         )
 
     def test_lists_only_valid_dated_markdown_files(self):
         with tempfile.TemporaryDirectory() as directory:
             for name in (
+                "2026_09_11.md",
+                "2026_02_29.md",
                 "2026-09-11.md",
-                "2026-02-29.md",
                 "notes.md",
-                "2026-09-11.txt",
+                "2026_09_11.txt",
             ):
                 with open(os.path.join(directory, name), "w", encoding="utf-8"):
                     pass
-            os.mkdir(os.path.join(directory, "2026-09-12.md"))
+            os.mkdir(os.path.join(directory, "2026_09_12.md"))
             self.assertEqual(journal_dates(directory), {date(2026, 9, 11)})
 
     def test_missing_data_dir_has_no_journal_dates(self):

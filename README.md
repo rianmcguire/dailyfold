@@ -5,7 +5,7 @@ A daily-journal outliner. GTK3 + Cairo; markdown on disk, one file per day.
 Very early. See [TODO.md](TODO.md) for what's planned.
 
 The GUI opens today's journal, automatically saves edits after a short debounce,
-and uses one ISO-dated Markdown file per day. The calendar sidebar navigates
+and uses one `yyyy_mm_dd.md` Markdown file per day. The calendar sidebar navigates
 between days and marks dates that already have a file.
 
 Inline Markdown supports `**bold**`, `*italic*`, `` `code` ``, `~~strikethrough~~`,
