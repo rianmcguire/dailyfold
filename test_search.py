@@ -69,6 +69,23 @@ class TestSearchJournals(unittest.TestCase):
         self.save(date(2026, 9, 16), [Block(0, "anything")])
         self.assertEqual(search_journals(self.data_dir, ""), [])
 
+    def test_stops_at_result_limit(self):
+        newest = date(2026, 9, 16)
+        older = date(2026, 9, 15)
+        self.save(newest, [Block(0, f"hit {index}") for index in range(4)])
+        self.save(older, [Block(0, "older hit")])
+
+        results = search_journals(self.data_dir, "hit", limit=3)
+
+        self.assertEqual(
+            [result.text for result in results],
+            ["hit 0", "hit 1", "hit 2"],
+        )
+
+    def test_non_positive_limit_has_no_results(self):
+        self.save(date(2026, 9, 16), [Block(0, "hit")])
+        self.assertEqual(search_journals(self.data_dir, "hit", limit=0), [])
+
 
 class TestCompactBlockText(unittest.TestCase):
     def test_collapses_multiline_whitespace(self):

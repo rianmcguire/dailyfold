@@ -22,9 +22,9 @@ def compact_block_text(text):
     return " ".join(text.split())
 
 
-def search_journals(data_dir, query):
+def search_journals(data_dir, query, limit=None):
     """Find case-insensitive plain-substring matches, newest journal first."""
-    if not query:
+    if not query or (limit is not None and limit <= 0):
         return []
 
     pattern = re.compile(re.escape(query), re.IGNORECASE)
@@ -48,6 +48,8 @@ def search_journals(data_dir, query):
                         match_end=match.end(),
                     )
                 )
+                if limit is not None and len(results) >= limit:
+                    return results
 
             context_text = compact_block_text(block.text)
             if len(ancestors) == block.level:

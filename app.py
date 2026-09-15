@@ -77,6 +77,7 @@ CODE_INDENT_WIDTH = 4
 THIN_SPACE = "\u2009"
 SEARCH_MATCH_BG = "#fff0a8"
 SEARCH_MATCH_FG = "#222222"
+SEARCH_RESULT_LIMIT = 50
 
 
 @dataclass
@@ -2272,7 +2273,6 @@ class SearchDialog(Gtk.Dialog):
 
         self.set_default_size(680, 440)
         self.set_position(Gtk.WindowPosition.CENTER_ON_PARENT)
-        self.add_button("Close", Gtk.ResponseType.CANCEL)
 
         content = self.get_content_area()
         content.set_spacing(10)
@@ -2299,7 +2299,7 @@ class SearchDialog(Gtk.Dialog):
         self.results.connect("row-activated", self._on_row_activated)
         self.scroller.add(self.results)
 
-        self.status = Gtk.Label(label="Type to search every journal")
+        self.status = Gtk.Label(label="Type to search")
         self.status.set_xalign(0)
         self.status.get_style_context().add_class("dim-label")
         content.pack_start(self.status, False, False, 0)
@@ -2316,26 +2316,35 @@ class SearchDialog(Gtk.Dialog):
         query = entry.get_text()
         self._clear_results()
         if not query:
-            self.status.set_text("Type to search every journal")
+            self.status.set_text("Type to search")
             return
 
         try:
-            matches = search_journals(self.data_dir, query)
+            matches = search_journals(
+                self.data_dir,
+                query,
+                limit=SEARCH_RESULT_LIMIT + 1,
+            )
         except OSError as error:
             self.status.set_text(f"Could not search journals: {error}")
             return
 
-        for result in matches:
+        capped = len(matches) > SEARCH_RESULT_LIMIT
+        visible_matches = matches[:SEARCH_RESULT_LIMIT]
+        for result in visible_matches:
             row = self._result_row(result, query)
             self.results.add(row)
             self.result_rows.append(row)
 
-        if matches:
-            count = len(matches)
-            self.status.set_text(f"{count} result{'s' if count != 1 else ''}")
+        if visible_matches:
+            count = len(visible_matches)
+            suffix = "+" if capped else ""
+            self.status.set_text(
+                f"{count}{suffix} result{'s' if count != 1 else ''}"
+            )
             self.results.select_row(self.result_rows[0])
         else:
-            self.status.set_text("No matching blocks")
+            self.status.set_text("No matches")
         self.results.show_all()
 
     def _result_row(self, result, query):
