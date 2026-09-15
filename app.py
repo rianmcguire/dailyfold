@@ -96,7 +96,7 @@ class HeaderLayout:
 
 
 def format_journal_date(day):
-    return f"{day.strftime('%A')}, {day.day} {day.strftime('%B %Y')}"
+    return f"{day.isoformat()} {day.strftime('%A')}"
 
 
 def empty_journal_document():

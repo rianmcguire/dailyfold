@@ -1,4 +1,5 @@
 import unittest
+from datetime import date
 from types import SimpleNamespace
 
 from app import (
@@ -12,6 +13,7 @@ from app import (
     blocks_to_clipboard_payload,
     blocks_to_clipboard_text,
     copy_blocks,
+    format_journal_date,
     task_state,
     toggle_task_text,
     visible_block_indices,
@@ -52,6 +54,14 @@ def levels(v):
 
 def shape(v):
     return [(b.level, b.text) for b in v.blocks]
+
+
+class TestJournalDateFormatting(unittest.TestCase):
+    def test_iso_date_followed_by_weekday(self):
+        self.assertEqual(
+            format_journal_date(date(2026, 9, 14)),
+            "2026-09-14 Monday",
+        )
 
 
 class TestSubtreeEnd(unittest.TestCase):
