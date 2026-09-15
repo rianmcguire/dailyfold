@@ -541,6 +541,7 @@ def paint_blocks(
     fg=FG,
     skip_text_for=None,
     selected_blocks=None,
+    hovered_bullet=None,
 ):
     selected_blocks = selected_blocks or set()
     cr.set_source_rgb(*BG)
@@ -592,7 +593,7 @@ def paint_blocks(
 
         bullet_x = X0 + block.level * INDENT + 5.5
         bullet_y = bl.y + TEXT_PAD + body_line_h / 2
-        cr.set_source_rgb(*DIM)
+        cr.set_source_rgb(*(FG if block is hovered_bullet else DIM))
         if bl.has_children and block.collapsed:
             cr.move_to(bullet_x - 2.5, bullet_y - 3.5)
             cr.line_to(bullet_x + 3.5, bullet_y)
@@ -642,6 +643,8 @@ class BlocksView(Gtk.Overlay):
         self._drag_anchor_idx = None
         self._drag_anchor_offset = None
         self._edit_activation_click = None
+        self._hovered_bullet = None
+        self._pointer_cursor = None
         self._clipboard_plain_text = None
         self._clipboard_html = None
         self._clipboard_payload = None
@@ -653,12 +656,14 @@ class BlocksView(Gtk.Overlay):
             Gdk.EventMask.BUTTON_PRESS_MASK
             | Gdk.EventMask.BUTTON_RELEASE_MASK
             | Gdk.EventMask.POINTER_MOTION_MASK
+            | Gdk.EventMask.LEAVE_NOTIFY_MASK
             | Gdk.EventMask.KEY_PRESS_MASK
         )
         self.canvas.connect("draw", self._on_draw)
         self.canvas.connect("button-press-event", self._on_click)
         self.canvas.connect("button-release-event", self._on_button_release)
         self.canvas.connect("motion-notify-event", self._on_canvas_motion)
+        self.canvas.connect("leave-notify-event", self._on_canvas_leave)
         self.canvas.connect("key-press-event", self._on_canvas_key_press)
         self.canvas.connect("selection-get", self._on_clipboard_selection_get)
         self._clipboard_atoms = {
@@ -697,6 +702,7 @@ class BlocksView(Gtk.Overlay):
         self.layouts = []
         self.selection = None
         self.desired_col = None
+        self._set_hovered_bullet(None)
         self.history = History(cap=1000)
         self._content_height = 1
         self.canvas.set_size_request(-1, 1)
@@ -772,6 +778,7 @@ class BlocksView(Gtk.Overlay):
             fg=(rgba.red, rgba.green, rgba.blue),
             skip_text_for=self.editing_block,
             selected_blocks=selected_blocks,
+            hovered_bullet=self._hovered_bullet,
         )
         return False
 
@@ -911,6 +918,32 @@ class BlocksView(Gtk.Overlay):
             abs(x - bullet_x) <= hit_radius
             and bl.y <= y < bl.y + bl.height
         )
+
+    def _set_hovered_bullet(self, block):
+        if block is self._hovered_bullet:
+            return
+        self._hovered_bullet = block
+        window = self.canvas.get_window()
+        if window is not None:
+            if block is not None and self._pointer_cursor is None:
+                self._pointer_cursor = Gdk.Cursor.new_from_name(
+                    window.get_display(), "pointer"
+                )
+            window.set_cursor(
+                self._pointer_cursor if block is not None else None
+            )
+        self.canvas.queue_draw()
+
+    def _update_bullet_hover(self, x, y):
+        target_bl = self._block_at_y(y)
+        hovered = None
+        if target_bl is not None and self._bullet_hit(target_bl, x, y):
+            hovered = target_bl.block
+        self._set_hovered_bullet(hovered)
+
+    def _on_canvas_leave(self, widget, event):
+        self._set_hovered_bullet(None)
+        return False
 
     def _cursor_from_click(self, bl, click_x, click_y):
         body_font = resolve_body_font(self.canvas)
@@ -1949,6 +1982,7 @@ class BlocksView(Gtk.Overlay):
         return False
 
     def _on_canvas_motion(self, widget, event):
+        self._update_bullet_hover(event.x, event.y)
         if self._drag_anchor_idx is None:
             return False
         target_bl = self._block_at_y(event.y)
