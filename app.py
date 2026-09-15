@@ -788,9 +788,50 @@ class BlocksView(Gtk.Overlay):
                 return bl
         return None
 
+    def _body_row_height(self):
+        body_font = resolve_body_font(self.canvas)
+        sample = Pango.Layout.new(self.canvas.get_pango_context())
+        sample.set_font_description(body_font)
+        sample.set_text("Ag", -1)
+        _, extents = sample.get_pixel_extents()
+        return extents.height + TEXT_PAD * 2
+
+    def _append_area_hit(self, y):
+        if self.layouts:
+            top = self.layouts[-1].y + self.layouts[-1].height
+        elif self.header_layout is not None:
+            top = (
+                self.header_layout.y
+                + self.header_layout.height
+                + HEADER_GAP
+            )
+        else:
+            return False
+        return top <= y < top + self._body_row_height()
+
     def _on_click(self, widget, event):
         state = event.state & Gtk.accelerator_get_default_mod_mask()
         target_bl = self._block_at_y(event.y)
+
+        if (
+            target_bl is None
+            and state == 0
+            and event.button == 1
+            and event.type == Gdk.EventType.BUTTON_PRESS
+            and self._append_area_hit(event.y)
+        ):
+            pre = self._begin_structural()
+            self._finish_editing()
+            self.selection = None
+            block = Block(0, "")
+            self.blocks.append(block)
+            self._recompute_layouts(self.canvas.get_allocation().width)
+            new_bl = next(bl for bl in self.layouts if bl.block is block)
+            self._start_editing(new_bl, 0)
+            self._drag_anchor_idx = len(self.blocks) - 1
+            self._drag_anchor_offset = 0
+            self._end_structural(pre)
+            return True
 
         if state == Gdk.ModifierType.SHIFT_MASK and target_bl is not None:
             target_idx = self._block_index(target_bl.block)

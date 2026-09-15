@@ -30,6 +30,7 @@ class _StubView:
     _shift_levels = BlocksView._shift_levels
     _move_range = BlocksView._move_range
     _visible_neighbor = BlocksView._visible_neighbor
+    _append_area_hit = BlocksView._append_area_hit
     _completes_edit_activation_click = (
         BlocksView._completes_edit_activation_click
     )
@@ -69,6 +70,27 @@ class TestJournalDateFormatting(unittest.TestCase):
             format_journal_date(date(2026, 9, 14)),
             "2026-09-14 Monday",
         )
+
+
+class TestAppendAreaHit(unittest.TestCase):
+    def setUp(self):
+        self.v = view((0, "last"))
+        self.v.layouts = [SimpleNamespace(y=50, height=24)]
+        self.v.header_layout = SimpleNamespace(y=10, height=20)
+        self.v._body_row_height = lambda: 24
+
+    def test_covers_one_row_below_last_item(self):
+        self.assertTrue(self.v._append_area_hit(74))
+        self.assertTrue(self.v._append_area_hit(97.999))
+
+    def test_excludes_items_and_space_beyond_one_row(self):
+        self.assertFalse(self.v._append_area_hit(73.999))
+        self.assertFalse(self.v._append_area_hit(98))
+
+    def test_starts_below_header_when_document_has_no_items(self):
+        self.v.layouts = []
+        self.assertFalse(self.v._append_area_hit(37.999))
+        self.assertTrue(self.v._append_area_hit(38))
 
 
 class TestSubtreeEnd(unittest.TestCase):
