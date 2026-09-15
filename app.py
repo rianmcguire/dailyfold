@@ -2079,7 +2079,6 @@ class AppWindow(Gtk.Window):
         )
         self.scroller.add(self.view)
         self._refresh_calendar_marks()
-        self._update_window_title()
 
     def _load_day(self, day):
         try:
@@ -2089,9 +2088,6 @@ class AppWindow(Gtk.Window):
         if not document.blocks:
             document.blocks.append(Block(0, ""))
         return document
-
-    def _update_window_title(self):
-        self.set_title(f"dailyfold — {self.current_day.isoformat()}")
 
     def _select_calendar_day(self, day):
         self._calendar_syncing = True
@@ -2151,7 +2147,6 @@ class AppWindow(Gtk.Window):
         self.file_path = journal_path(self.data_dir, day)
         self._dirty = False
         self.view.set_page(format_journal_date(day), document.blocks)
-        self._update_window_title()
         GLib.idle_add(self._scroll_to_top)
         return True
 
