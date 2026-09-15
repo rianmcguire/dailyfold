@@ -2019,11 +2019,6 @@ class AppWindow(Gtk.Window):
         sidebar.set_border_width(12)
         root.pack_start(sidebar, False, False, 0)
 
-        sidebar_title = Gtk.Label()
-        sidebar_title.set_markup("<b>Journal</b>")
-        sidebar_title.set_xalign(0)
-        sidebar.pack_start(sidebar_title, False, False, 0)
-
         self.calendar = Gtk.Calendar()
         self._select_calendar_day(self.current_day)
         self.calendar.connect("day-selected", self._on_calendar_day_selected)
@@ -2033,15 +2028,6 @@ class AppWindow(Gtk.Window):
         today_button = Gtk.Button(label="Today")
         today_button.connect("clicked", self._on_today_clicked)
         sidebar.pack_start(today_button, False, False, 0)
-
-        storage_label = Gtk.Label(label=self.data_dir)
-        storage_label.set_xalign(0)
-        storage_label.set_yalign(1)
-        storage_label.set_line_wrap(True)
-        storage_label.set_selectable(True)
-        storage_label.get_style_context().add_class("dim-label")
-        storage_label.set_tooltip_text(f"Journal storage: {self.data_dir}")
-        sidebar.pack_end(storage_label, False, False, 0)
 
         separator = Gtk.Separator(orientation=Gtk.Orientation.VERTICAL)
         root.pack_start(separator, False, False, 0)
