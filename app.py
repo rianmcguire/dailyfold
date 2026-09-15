@@ -20,6 +20,7 @@ from gi.repository import Gdk, GLib, Gtk, GtkSource, Pango, PangoCairo
 from history import History
 from markdown import (
     display_char_from_byte,
+    link_url_at_display_offset,
     parse_inline,
     runs_to_html,
     runs_to_markup,
@@ -851,6 +852,20 @@ class BlocksView(Gtk.Overlay):
         target_bl = self._block_at_y(event.y)
 
         if (
+            target_bl is not None
+            and state & Gdk.ModifierType.CONTROL_MASK
+            and event.button == 1
+            and event.type == Gdk.EventType.BUTTON_PRESS
+        ):
+            url = self._link_url_from_click(target_bl, event.x, event.y)
+            if url is not None:
+                self._finish_editing()
+                self.selection = None
+                self.canvas.queue_draw()
+                self._open_link(url, event.time)
+                return True
+
+        if (
             target_bl is None
             and state == 0
             and event.button == 1
@@ -1042,7 +1057,7 @@ class BlocksView(Gtk.Overlay):
         self._set_interaction_hover(None, False)
         return False
 
-    def _cursor_from_click(self, bl, click_x, click_y):
+    def _layout_position_from_click(self, bl, click_x, click_y):
         body_font = resolve_body_font(self.canvas)
         block = bl.block
 
@@ -1060,19 +1075,52 @@ class BlocksView(Gtk.Overlay):
 
         local_x = max(0, click_x - bl.text_x)
         local_y = max(0, click_y - (bl.y + TEXT_PAD))
-        _, byte_idx, trailing = lay.xy_to_index(
+        inside, byte_idx, trailing = lay.xy_to_index(
             int(local_x * Pango.SCALE), int(local_y * Pango.SCALE)
         )
 
         display_text = lay.get_text()
-        char_idx = display_char_from_byte(display_text, byte_idx) + trailing
-        char_idx = min(char_idx, len(display_text))
+        char_idx = min(
+            display_char_from_byte(display_text, byte_idx), len(display_text)
+        )
+        return inside, inline, char_idx, trailing
+
+    def _cursor_from_click(self, bl, click_x, click_y):
+        _, inline, char_idx, trailing = self._layout_position_from_click(
+            bl, click_x, click_y
+        )
+        char_idx += trailing
         if inline is None:
             return char_idx
-        if _block_task_state(block) is not None:
+        if _block_task_state(bl.block) is not None:
             # The status badge has one display-only thin space on each side.
             char_idx = max(0, char_idx - 2)
         return source_offset_from_display(inline, char_idx)
+
+    def _link_url_from_click(self, bl, click_x, click_y):
+        inside, inline, char_idx, _ = self._layout_position_from_click(
+            bl, click_x, click_y
+        )
+        if not inside or inline is None:
+            return None
+        if _block_task_state(bl.block) is not None:
+            char_idx = max(0, char_idx - 2)
+        url = link_url_at_display_offset(inline, char_idx)
+        if url is None or not url.startswith(
+            ("http://", "https://", "mailto:")
+        ):
+            return None
+        return url
+
+    def _open_link(self, url, timestamp):
+        parent = self.get_toplevel()
+        if not isinstance(parent, Gtk.Window):
+            parent = None
+        try:
+            return Gtk.show_uri_on_window(parent, url, timestamp)
+        except GLib.Error as error:
+            print(f"Could not open {url}: {error}", file=sys.stderr)
+            return False
 
     def _start_editing(self, bl, cursor_source_idx=None):
         is_code = bl.block.code_lang is not None

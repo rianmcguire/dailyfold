@@ -5,6 +5,7 @@ from types import SimpleNamespace
 from app import (
     Block,
     BlocksView,
+    Gdk,
     _block_task_state,
     _task_markup,
     blocks_from_clipboard_payload,
@@ -23,6 +24,7 @@ from history import History
 
 
 class _StubView:
+    _on_click = BlocksView._on_click
     _block_index = BlocksView._block_index
     _parent_index = BlocksView._parent_index
     _subtree_end = BlocksView._subtree_end
@@ -268,6 +270,36 @@ class TestSelectAll(unittest.TestCase):
     def test_no_selection_is_not_handled(self):
         v = view((0, "A"))
         self.assertFalse(v._expand_block_selection())
+
+
+class TestControlClickLink(unittest.TestCase):
+    def test_opens_link_without_entering_editor(self):
+        v = view((0, "[docs](https://example.com)"))
+        bl = SimpleNamespace(block=v.blocks[0])
+        v._block_at_y = lambda y: bl
+        v._link_url_from_click = (
+            lambda target, x, y: "https://example.com"
+        )
+        finished = []
+        opened = []
+        v._finish_editing = lambda: finished.append(True)
+        v._open_link = lambda url, timestamp: opened.append((url, timestamp))
+        v.edit_view = None
+        v.selection = (0, 0)
+        event = SimpleNamespace(
+            state=Gdk.ModifierType.CONTROL_MASK,
+            button=1,
+            type=Gdk.EventType.BUTTON_PRESS,
+            x=25,
+            y=40,
+            time=1234,
+        )
+
+        self.assertTrue(v._on_click(v.canvas, event))
+
+        self.assertEqual(finished, [True])
+        self.assertIsNone(v.selection)
+        self.assertEqual(opened, [("https://example.com", 1234)])
 
 
 class TestEditActivationDoubleClick(unittest.TestCase):

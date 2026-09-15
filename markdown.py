@@ -342,6 +342,19 @@ def tokenize_inline(source: str) -> list[InlineRun]:
     return list(parse_inline(source).runs)
 
 
+def link_url_at_display_offset(parsed: InlineParse, display_char_idx: int):
+    """Return the link covering a displayed character, if any."""
+    if display_char_idx < 0:
+        return None
+    offset = 0
+    for run in parsed.runs:
+        end = offset + len(run.text)
+        if offset <= display_char_idx < end:
+            return run.link_url
+        offset = end
+    return None
+
+
 def runs_to_markup(runs: Iterable[InlineRun]) -> str:
     parts = []
     for run in runs:

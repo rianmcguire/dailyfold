@@ -11,6 +11,8 @@ between days and marks dates that already have a file.
 Inline Markdown supports `**bold**`, `*italic*`, `` `code` ``, `~~strikethrough~~`,
 backslash escapes, `[label](destination)` links, angle-bracket autolinks, and bare
 HTTP(S) URLs. Emphasis and strikethrough can be nested.
+Hold Ctrl and click a rendered web or email link to open it with the system
+handler; an ordinary click continues to enter editing mode.
 
 ## Dependencies
 

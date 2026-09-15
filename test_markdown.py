@@ -1,6 +1,7 @@
 import unittest
 
 from markdown import (
+    link_url_at_display_offset,
     parse_inline,
     runs_to_html,
     runs_to_markup,
@@ -118,6 +119,21 @@ class TestParseInline(unittest.TestCase):
 
         self.assertEqual(parsed.display_text, "docs next")
         self.assertEqual(parsed.display_to_source[:5], (1, 2, 3, 4, 14))
+
+    def test_finds_link_at_displayed_character(self):
+        parsed = parse_inline("See [the **docs**](https://example.com) now")
+
+        self.assertIsNone(link_url_at_display_offset(parsed, 3))
+        for offset in range(4, 12):
+            self.assertEqual(
+                link_url_at_display_offset(parsed, offset),
+                "https://example.com",
+            )
+        self.assertIsNone(link_url_at_display_offset(parsed, 12))
+        self.assertIsNone(link_url_at_display_offset(parsed, -1))
+        self.assertIsNone(
+            link_url_at_display_offset(parsed, len(parsed.display_text))
+        )
 
     def test_angle_url_and_email_autolinks(self):
         url = parse_inline("<https://example.com/a>")
