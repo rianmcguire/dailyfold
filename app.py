@@ -32,7 +32,7 @@ from storage import (
     journal_dates,
     journal_path,
     load_document,
-    save_document,
+    save_journal_document,
 )
 
 
@@ -2305,7 +2305,7 @@ class AppWindow(Gtk.Window):
             return True
         self.document.blocks = self.view.blocks
         try:
-            save_document(self.file_path, self.document)
+            save_journal_document(self.file_path, self.document)
         except OSError as error:
             print(f"Could not save {self.file_path}: {error}", file=sys.stderr)
             return False

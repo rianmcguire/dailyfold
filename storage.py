@@ -257,6 +257,19 @@ def serialize_document(document):
     return result
 
 
+def document_is_empty(document):
+    """Return whether a journal has no user-authored content or metadata."""
+    if any(line.strip() for line in document.preamble):
+        return False
+    return all(
+        block.code_lang is None
+        and not block.text.strip()
+        and not block.properties
+        and not block.collapsed
+        for block in document.blocks
+    )
+
+
 def load_document(path):
     with open(path, encoding="utf-8", newline=None) as handle:
         return parse_document(handle.read())
@@ -294,3 +307,14 @@ def save_document(path, document):
         except FileNotFoundError:
             pass
         raise
+
+
+def save_journal_document(path, document):
+    """Save a journal, removing its file instead when the journal is empty."""
+    if document_is_empty(document):
+        try:
+            os.unlink(os.path.abspath(os.path.expanduser(path)))
+        except FileNotFoundError:
+            pass
+        return
+    save_document(path, document)

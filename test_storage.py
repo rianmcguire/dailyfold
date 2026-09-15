@@ -7,11 +7,13 @@ from model import Block
 from storage import (
     MarkdownDocument,
     default_data_dir,
+    document_is_empty,
     journal_dates,
     journal_path,
     load_document,
     parse_document,
     save_document,
+    save_journal_document,
     serialize_document,
 )
 
@@ -178,6 +180,43 @@ class TestFileIO(unittest.TestCase):
                 ],
                 [],
             )
+
+    def test_empty_journal_removes_existing_file(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = os.path.join(directory, "2026_09_16.md")
+            save_document(path, MarkdownDocument([Block(0, "content")]))
+
+            save_journal_document(path, MarkdownDocument([Block(0, "")]))
+
+            self.assertFalse(os.path.exists(path))
+
+    def test_empty_journal_without_file_is_a_no_op(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = os.path.join(directory, "2026_09_16.md")
+            save_journal_document(path, MarkdownDocument([Block(0, "")]))
+            self.assertFalse(os.path.exists(path))
+
+
+class TestDocumentIsEmpty(unittest.TestCase):
+    def test_accepts_no_blocks_and_blank_placeholder_blocks(self):
+        self.assertTrue(document_is_empty(MarkdownDocument()))
+        self.assertTrue(
+            document_is_empty(
+                MarkdownDocument([Block(0, ""), Block(0, "  \n")], [""])
+            )
+        )
+
+    def test_preserves_text_code_and_metadata(self):
+        documents = [
+            MarkdownDocument([Block(0, "content")]),
+            MarkdownDocument([Block(0, "", code_lang="")]),
+            MarkdownDocument([Block(0, "", properties=("id:: 123",))]),
+            MarkdownDocument([Block(0, "", collapsed=True)]),
+            MarkdownDocument([], ["title:: Journal"]),
+        ]
+        for document in documents:
+            with self.subTest(document=document):
+                self.assertFalse(document_is_empty(document))
 
 
 class TestJournalStorage(unittest.TestCase):
