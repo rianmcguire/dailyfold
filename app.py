@@ -577,7 +577,7 @@ def paint_blocks(
             cr.rectangle(
                 bl.text_x - TEXT_PAD,
                 bl.y + 2,
-                width - (bl.text_x - TEXT_PAD),
+                width - RIGHT_PAD - (bl.text_x - TEXT_PAD),
                 bl.height - 4,
             )
             cr.fill()
