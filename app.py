@@ -417,7 +417,7 @@ def resolve_body_font(widget=None):
 def _header_font_of(body_font):
     hf = body_font.copy()
     size = hf.get_size() or 11 * Pango.SCALE
-    hf.set_size(int(size * 1.3))
+    hf.set_size(int(size * 1.5))
     hf.set_weight(Pango.Weight.BOLD)
     return hf
 
