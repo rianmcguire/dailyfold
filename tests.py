@@ -32,6 +32,7 @@ class _StubView:
     _move_range = BlocksView._move_range
     _visible_neighbor = BlocksView._visible_neighbor
     _append_area_hit = BlocksView._append_area_hit
+    _task_label_hit = BlocksView._task_label_hit
     _completes_edit_activation_click = (
         BlocksView._completes_edit_activation_click
     )
@@ -122,6 +123,29 @@ class TestAppendAreaHit(unittest.TestCase):
         self.v.layouts = []
         self.assertFalse(self.v._append_area_hit(37.999))
         self.assertTrue(self.v._append_area_hit(38))
+
+
+class TestTaskLabelHit(unittest.TestCase):
+    def setUp(self):
+        self.v = view((0, "TODO task"))
+        self.v._body_row_height = lambda: 24
+        self.bl = SimpleNamespace(
+            text_x=70,
+            y=50,
+            task_label_width=42,
+        )
+
+    def test_hits_colored_label_on_first_row(self):
+        self.assertTrue(self.v._task_label_hit(self.bl, 70, 50))
+        self.assertTrue(self.v._task_label_hit(self.bl, 111.999, 73.999))
+
+    def test_excludes_body_text_and_other_rows(self):
+        self.assertFalse(self.v._task_label_hit(self.bl, 112, 60))
+        self.assertFalse(self.v._task_label_hit(self.bl, 80, 74))
+
+    def test_non_task_layout_has_no_label_target(self):
+        self.bl.task_label_width = None
+        self.assertFalse(self.v._task_label_hit(self.bl, 80, 60))
 
 
 class TestSubtreeEnd(unittest.TestCase):
@@ -762,11 +786,11 @@ class TestTasks(unittest.TestCase):
     def test_task_markup_keeps_prefix_and_inline_markdown(self):
         todo = _task_markup("TODO **ship** it")
         done = _task_markup("DONE **ship** it")
-        self.assertIn(">TODO</span> ", todo)
+        self.assertIn(f">\u2009TODO\u2009</span> ", todo)
         self.assertIn('foreground="#045591"', todo)
         self.assertIn('background="#e1f0f7"', todo)
         self.assertIn("<b>ship</b>", todo)
-        self.assertIn(">DONE</span> ", done)
+        self.assertIn(f">\u2009DONE\u2009</span> ", done)
         self.assertIn('foreground="#2f6f44"', done)
         self.assertIn('background="#def3e5"', done)
         self.assertIn('strikethrough="true"', done)

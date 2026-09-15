@@ -72,6 +72,7 @@ TASK_CHECKBOX_SIZE = 13
 TASK_CHECKBOX_GAP = 7
 SIDEBAR_WIDTH = 230
 CODE_INDENT_WIDTH = 4
+THIN_SPACE = "\u2009"
 
 
 @dataclass
@@ -83,6 +84,7 @@ class BlockLayout:
     text_width: float
     checkbox_x: float | None = None
     checkbox_y: float | None = None
+    task_label_width: float | None = None
     has_children: bool = False
 
 
@@ -141,6 +143,18 @@ def link_from_paste(selected_text, clipboard_text):
     return f"[{label}]({destination})"
 
 
+def _task_label_markup(state):
+    if state == "TODO":
+        return (
+            '<span foreground="#045591" background="#e1f0f7" '
+            f'weight="bold">{THIN_SPACE}TODO{THIN_SPACE}</span>'
+        )
+    return (
+        '<span foreground="#2f6f44" background="#def3e5" '
+        f'weight="bold">{THIN_SPACE}DONE{THIN_SPACE}</span>'
+    )
+
+
 def _task_markup(text, inline=None):
     state = task_state(text)
     if state is None:
@@ -149,21 +163,12 @@ def _task_markup(text, inline=None):
         return runs_to_markup(inline.runs)
 
     body_markup = runs_to_markup(parse_inline(text[5:]).runs)
-    if state == "TODO":
-        label = (
-            '<span foreground="#045591" background="#e1f0f7" '
-            'weight="bold">TODO</span> '
-        )
-    else:
-        label = (
-            '<span foreground="#2f6f44" background="#def3e5" '
-            'weight="bold">DONE</span> '
-        )
+    if state == "DONE":
         body_markup = (
             '<span foreground="#88898c" strikethrough="true">'
             f"{body_markup}</span>"
         )
-    return label + body_markup
+    return _task_label_markup(state) + " " + body_markup
 
 
 def _block_task_state(block):
@@ -479,12 +484,19 @@ def compute_layouts(pango_context, width, body_font, header_text, blocks):
         tx = X0 + block.level * INDENT + BULLET_GAP
         checkbox_x = None
         checkbox_y = None
-        if _block_task_state(block) is not None:
+        task_label_width = None
+        state = _block_task_state(block)
+        if state is not None:
             checkbox_x = tx
             checkbox_y = y + TEXT_PAD + max(
                 0, (body_line_h - TASK_CHECKBOX_SIZE) / 2
             )
             tx += TASK_CHECKBOX_SIZE + TASK_CHECKBOX_GAP
+            task_label = Pango.Layout.new(pango_context)
+            task_label.set_font_description(body_font)
+            task_label.set_markup(_task_label_markup(state), -1)
+            _, task_label_ext = task_label.get_pixel_extents()
+            task_label_width = task_label_ext.width
         tw = max(1, width - tx - RIGHT_PAD)
 
         lay = Pango.Layout.new(pango_context)
@@ -509,6 +521,7 @@ def compute_layouts(pango_context, width, body_font, header_text, blocks):
                 text_width=tw,
                 checkbox_x=checkbox_x,
                 checkbox_y=checkbox_y,
+                task_label_width=task_label_width,
                 has_children=(
                     block_idx + 1 < len(blocks)
                     and blocks[block_idx + 1].level > block.level
@@ -668,6 +681,7 @@ class BlocksView(Gtk.Overlay):
         self._edit_activation_click = None
         self._hovered_bullet = None
         self._pointer_cursor = None
+        self._pointer_active = False
         self._clipboard_plain_text = None
         self._clipboard_html = None
         self._clipboard_payload = None
@@ -725,7 +739,7 @@ class BlocksView(Gtk.Overlay):
         self.layouts = []
         self.selection = None
         self.desired_col = None
-        self._set_hovered_bullet(None)
+        self._set_interaction_hover(None, False)
         self.history = History(cap=1000)
         self._content_height = 1
         self.canvas.set_size_request(-1, 1)
@@ -871,8 +885,9 @@ class BlocksView(Gtk.Overlay):
                 self.canvas.queue_draw()
                 return True
 
-        if target_bl is not None and self._checkbox_hit(
-            target_bl, event.x, event.y
+        if target_bl is not None and (
+            self._checkbox_hit(target_bl, event.x, event.y)
+            or self._task_label_hit(target_bl, event.x, event.y)
         ):
             target_idx = self._block_index(target_bl.block)
             if self._toggle_task_blocks([target_idx]):
@@ -973,6 +988,14 @@ class BlocksView(Gtk.Overlay):
             <= bl.checkbox_y + TASK_CHECKBOX_SIZE + hit_pad
         )
 
+    def _task_label_hit(self, bl, x, y):
+        if bl.task_label_width is None:
+            return False
+        return (
+            bl.text_x <= x < bl.text_x + bl.task_label_width
+            and bl.y <= y < bl.y + self._body_row_height()
+        )
+
     def _bullet_hit(self, bl, x, y):
         if not bl.has_children:
             return False
@@ -983,30 +1006,40 @@ class BlocksView(Gtk.Overlay):
             and bl.y <= y < bl.y + bl.height
         )
 
-    def _set_hovered_bullet(self, block):
-        if block is self._hovered_bullet:
+    def _set_interaction_hover(self, hovered_bullet, pointer_active):
+        bullet_changed = hovered_bullet is not self._hovered_bullet
+        pointer_changed = pointer_active != self._pointer_active
+        if not bullet_changed and not pointer_changed:
             return
-        self._hovered_bullet = block
+        self._hovered_bullet = hovered_bullet
+        self._pointer_active = pointer_active
         window = self.canvas.get_window()
-        if window is not None:
-            if block is not None and self._pointer_cursor is None:
+        if window is not None and pointer_changed:
+            if pointer_active and self._pointer_cursor is None:
                 self._pointer_cursor = Gdk.Cursor.new_from_name(
                     window.get_display(), "pointer"
                 )
             window.set_cursor(
-                self._pointer_cursor if block is not None else None
+                self._pointer_cursor if pointer_active else None
             )
-        self.canvas.queue_draw()
+        if bullet_changed:
+            self.canvas.queue_draw()
 
-    def _update_bullet_hover(self, x, y):
+    def _update_interaction_hover(self, x, y):
         target_bl = self._block_at_y(y)
-        hovered = None
+        hovered_bullet = None
+        pointer_active = False
         if target_bl is not None and self._bullet_hit(target_bl, x, y):
-            hovered = target_bl.block
-        self._set_hovered_bullet(hovered)
+            hovered_bullet = target_bl.block
+            pointer_active = True
+        elif target_bl is not None:
+            pointer_active = self._checkbox_hit(
+                target_bl, x, y
+            ) or self._task_label_hit(target_bl, x, y)
+        self._set_interaction_hover(hovered_bullet, pointer_active)
 
     def _on_canvas_leave(self, widget, event):
-        self._set_hovered_bullet(None)
+        self._set_interaction_hover(None, False)
         return False
 
     def _cursor_from_click(self, bl, click_x, click_y):
@@ -1036,6 +1069,9 @@ class BlocksView(Gtk.Overlay):
         char_idx = min(char_idx, len(display_text))
         if inline is None:
             return char_idx
+        if _block_task_state(block) is not None:
+            # The status badge has one display-only thin space on each side.
+            char_idx = max(0, char_idx - 2)
         return source_offset_from_display(inline, char_idx)
 
     def _start_editing(self, bl, cursor_source_idx=None):
@@ -2068,7 +2104,7 @@ class BlocksView(Gtk.Overlay):
         return False
 
     def _on_canvas_motion(self, widget, event):
-        self._update_bullet_hover(event.x, event.y)
+        self._update_interaction_hover(event.x, event.y)
         if self._drag_anchor_idx is None:
             return False
         target_bl = self._block_at_y(event.y)
