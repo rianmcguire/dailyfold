@@ -1032,6 +1032,13 @@ class BlocksView(Gtk.Overlay):
                 return self._enter_selection_mode()
             return False
         if state == Gdk.ModifierType.CONTROL_MASK and event.keyval in (
+            Gdk.KEY_v,
+            Gdk.KEY_V,
+        ):
+            if self._paste_internal_blocks_from_editor():
+                return True
+            return False
+        if state == Gdk.ModifierType.CONTROL_MASK and event.keyval in (
             Gdk.KEY_z,
             Gdk.KEY_Z,
         ):
@@ -1730,7 +1737,7 @@ class BlocksView(Gtk.Overlay):
         elif self._clipboard_plain_text is not None:
             selection_data.set_text(self._clipboard_plain_text, -1)
 
-    def _paste_blocks_from_clipboard(self):
+    def _read_blocks_from_clipboard(self, allow_plain_text):
         clipboard = Gtk.Clipboard.get(Gdk.SELECTION_CLIPBOARD)
         blocks_atom = self._clipboard_atoms[CLIPBOARD_BLOCKS_INFO]
         pasted = None
@@ -1745,23 +1752,14 @@ class BlocksView(Gtk.Overlay):
                         payload = None
                     pasted = blocks_from_clipboard_payload(payload)
 
-        if pasted is None:
+        if pasted is None and allow_plain_text:
             text = clipboard.wait_for_text()
             if text is None:
-                return True
+                return None
             pasted = blocks_from_clipboard_text(text)
-        if not pasted:
-            return True
+        return pasted
 
-        pre = self._begin_structural()
-        if self.selection is None:
-            insert_idx = len(self.blocks)
-            destination_level = 0
-        else:
-            indices = self._selection_indices()
-            insert_idx = indices[-1] + 1
-            destination_level = min(self.blocks[i].level for i in indices)
-
+    def _insert_pasted_blocks(self, pasted, insert_idx, destination_level, pre):
         inserted = [
             Block(
                 block.level + destination_level,
@@ -1779,6 +1777,50 @@ class BlocksView(Gtk.Overlay):
         self.canvas.queue_draw()
         self.queue_resize()
         return True
+
+    def _paste_internal_blocks_from_editor(self):
+        pasted = self._read_blocks_from_clipboard(allow_plain_text=False)
+        if not pasted:
+            return False
+
+        target_idx = self._block_index(self.editing_block)
+        target = self.blocks[target_idx]
+        replace_empty_page = (
+            len(self.blocks) == 1
+            and target.text == ""
+            and target.code_lang is None
+            and not target.properties
+        )
+        pre = self._begin_structural()
+        self._finish_editing()
+        if replace_empty_page:
+            self.blocks.clear()
+            insert_idx = 0
+            destination_level = 0
+        else:
+            insert_idx = self._subtree_end(target_idx)
+            destination_level = target.level
+        return self._insert_pasted_blocks(
+            pasted, insert_idx, destination_level, pre
+        )
+
+    def _paste_blocks_from_clipboard(self):
+        pasted = self._read_blocks_from_clipboard(allow_plain_text=True)
+        if not pasted:
+            return True
+
+        pre = self._begin_structural()
+        if self.selection is None:
+            insert_idx = len(self.blocks)
+            destination_level = 0
+        else:
+            indices = self._selection_indices()
+            insert_idx = indices[-1] + 1
+            destination_level = min(self.blocks[i].level for i in indices)
+
+        return self._insert_pasted_blocks(
+            pasted, insert_idx, destination_level, pre
+        )
 
     def _expand_block_selection(self):
         if self.selection is None or not self.blocks:

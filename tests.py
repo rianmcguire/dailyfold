@@ -33,6 +33,10 @@ class _StubView:
     _completes_edit_activation_click = (
         BlocksView._completes_edit_activation_click
     )
+    _insert_pasted_blocks = BlocksView._insert_pasted_blocks
+    _paste_internal_blocks_from_editor = (
+        BlocksView._paste_internal_blocks_from_editor
+    )
 
 
 def view(*levels_and_texts):
@@ -45,6 +49,9 @@ def view(*levels_and_texts):
 
 class _StubCanvas:
     def queue_draw(self):
+        pass
+
+    def grab_focus(self):
         pass
 
 
@@ -381,6 +388,52 @@ class TestClipboardFormat(unittest.TestCase):
                 '{"version":1,"blocks":[{"level":true}]}'
             )
         )
+
+
+class TestPasteInternalBlocksFromEditor(unittest.TestCase):
+    def prepare(self, v, pasted):
+        v.editing_block = v.blocks[-1]
+        v._read_blocks_from_clipboard = lambda allow_plain_text: pasted
+        v._begin_structural = lambda: "before"
+        v._finish_editing = lambda: setattr(v, "editing_block", None)
+        v._end_structural = lambda pre: self.assertEqual(pre, "before")
+        v.queue_resize = lambda: None
+
+    def test_replaces_empty_day_placeholder(self):
+        v = view((0, ""))
+        self.prepare(v, [Block(0, "parent"), Block(1, "child")])
+
+        self.assertTrue(v._paste_internal_blocks_from_editor())
+
+        self.assertEqual(shape(v), [(0, "parent"), (1, "child")])
+        self.assertEqual(v.selection, (0, 1))
+
+    def test_inserts_after_target_subtree_at_target_level(self):
+        v = view((0, "parent"), (1, "target"), (2, "existing child"))
+        self.prepare(v, [Block(0, "pasted"), Block(1, "pasted child")])
+        v.editing_block = v.blocks[1]
+
+        self.assertTrue(v._paste_internal_blocks_from_editor())
+
+        self.assertEqual(
+            shape(v),
+            [
+                (0, "parent"),
+                (1, "target"),
+                (2, "existing child"),
+                (1, "pasted"),
+                (2, "pasted child"),
+            ],
+        )
+
+    def test_leaves_external_plain_text_to_textview(self):
+        v = view((0, "target"))
+        self.prepare(v, None)
+
+        self.assertFalse(v._paste_internal_blocks_from_editor())
+
+        self.assertEqual(shape(v), [(0, "target")])
+        self.assertIs(v.editing_block, v.blocks[0])
 
 
 class TestShiftLevels(unittest.TestCase):
