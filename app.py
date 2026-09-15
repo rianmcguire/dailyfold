@@ -42,7 +42,7 @@ DIM = (0.55, 0.55, 0.57)
 GUIDE = (0.87, 0.87, 0.89)
 SELECTION_BG = (0.83, 0.90, 0.99)
 CODE_BG = (0xfd / 255, 0xf6 / 255, 0xe3 / 255)
-TODO_ACCENT = (0.72, 0.45, 0.10)
+TODO_ACCENT = (0x04 / 255, 0x55 / 255, 0x91 / 255)
 DONE_ACCENT = (0.27, 0.57, 0.38)
 CODE_BG_CSS = b"""
 textview.code-block, textview.code-block text {
@@ -151,7 +151,7 @@ def _task_markup(text, inline=None):
     body_markup = runs_to_markup(parse_inline(text[5:]).runs)
     if state == "TODO":
         label = (
-            '<span foreground="#8a5a00" background="#fff0c2" '
+            '<span foreground="#045591" background="#e1f0f7" '
             'weight="bold">TODO</span> '
         )
     else:

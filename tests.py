@@ -763,8 +763,12 @@ class TestTasks(unittest.TestCase):
         todo = _task_markup("TODO **ship** it")
         done = _task_markup("DONE **ship** it")
         self.assertIn(">TODO</span> ", todo)
+        self.assertIn('foreground="#045591"', todo)
+        self.assertIn('background="#e1f0f7"', todo)
         self.assertIn("<b>ship</b>", todo)
         self.assertIn(">DONE</span> ", done)
+        self.assertIn('foreground="#2f6f44"', done)
+        self.assertIn('background="#def3e5"', done)
         self.assertIn('strikethrough="true"', done)
         self.assertIn("<b>ship</b>", done)
 
