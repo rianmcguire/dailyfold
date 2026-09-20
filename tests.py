@@ -167,7 +167,17 @@ class TestAppendAreaHit(unittest.TestCase):
         self.assertFalse(self.v._append_area_hit(73.999))
         self.assertFalse(self.v._append_area_hit(98))
 
+    def test_disabled_when_document_ends_in_empty_top_level_block(self):
+        self.v.blocks[-1].text = ""
+        self.assertFalse(self.v._append_area_hit(74))
+
+    def test_enabled_when_document_ends_in_empty_indented_block(self):
+        self.v.blocks[-1].level = 1
+        self.v.blocks[-1].text = ""
+        self.assertTrue(self.v._append_area_hit(74))
+
     def test_starts_below_header_when_document_has_no_items(self):
+        self.v.blocks = []
         self.v.layouts = []
         self.assertFalse(self.v._append_area_hit(37.999))
         self.assertTrue(self.v._append_area_hit(38))

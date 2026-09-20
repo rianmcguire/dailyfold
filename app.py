@@ -908,6 +908,12 @@ class BlocksView(Gtk.Overlay):
         return extents.height + TEXT_PAD * 2
 
     def _append_area_hit(self, y):
+        if (
+            self.blocks
+            and self.blocks[-1].level == 0
+            and not self.blocks[-1].text
+        ):
+            return False
         if self.layouts:
             top = self.layouts[-1].y + self.layouts[-1].height
         elif self.header_layout is not None:
