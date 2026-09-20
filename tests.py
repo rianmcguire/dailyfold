@@ -6,6 +6,7 @@ from app import (
     Block,
     BlocksView,
     Gdk,
+    Pango,
     _block_task_state,
     _search_result_markup,
     _task_markup,
@@ -17,6 +18,7 @@ from app import (
     copy_blocks,
     format_journal_date,
     link_from_paste,
+    resolve_body_font,
     task_state,
     toggle_task_text,
     visible_block_indices,
@@ -61,6 +63,22 @@ class _StubCanvas:
         pass
 
 
+class _StubPangoContext:
+    def __init__(self, font):
+        self.font = font
+
+    def get_font_description(self):
+        return self.font
+
+
+class _StubFontWidget:
+    def __init__(self, font):
+        self.context = _StubPangoContext(font)
+
+    def get_pango_context(self):
+        return self.context
+
+
 def levels(v):
     return [b.level for b in v.blocks]
 
@@ -75,6 +93,16 @@ class TestJournalDateFormatting(unittest.TestCase):
             format_journal_date(date(2026, 9, 14)),
             "2026-09-14 Monday",
         )
+
+
+class TestContentFont(unittest.TestCase):
+    def test_body_font_is_ten_percent_larger_than_widget_default(self):
+        default_font = Pango.FontDescription("Sans 10")
+
+        body_font = resolve_body_font(_StubFontWidget(default_font))
+
+        self.assertEqual(body_font.get_size(), 11 * Pango.SCALE)
+        self.assertEqual(default_font.get_size(), 10 * Pango.SCALE)
 
 
 class TestSearchResultMarkup(unittest.TestCase):

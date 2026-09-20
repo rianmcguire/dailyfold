@@ -78,6 +78,7 @@ THIN_SPACE = "\u2009"
 SEARCH_MATCH_BG = "#fff0a8"
 SEARCH_MATCH_FG = "#222222"
 SEARCH_RESULT_LIMIT = 50
+CONTENT_FONT_SCALE = 1.1
 
 
 @dataclass
@@ -412,10 +413,19 @@ def blocks_from_clipboard_text(text):
 
 def resolve_body_font(widget=None):
     if widget is not None:
-        return widget.get_pango_context().get_font_description().copy()
-    settings = Gtk.Settings.get_default()
-    name = settings.get_property("gtk-font-name") if settings else None
-    return Pango.FontDescription(name or "Sans 11")
+        font = widget.get_pango_context().get_font_description().copy()
+    else:
+        settings = Gtk.Settings.get_default()
+        name = settings.get_property("gtk-font-name") if settings else None
+        font = Pango.FontDescription(name or "Sans 11")
+
+    size = font.get_size() or 11 * Pango.SCALE
+    scaled_size = round(size * CONTENT_FONT_SCALE)
+    if font.get_size_is_absolute():
+        font.set_absolute_size(scaled_size)
+    else:
+        font.set_size(scaled_size)
+    return font
 
 
 def _header_font_of(body_font):
@@ -1188,6 +1198,8 @@ class BlocksView(Gtk.Overlay):
     def _start_editing(self, bl, cursor_source_idx=None):
         is_code = bl.block.code_lang is not None
         tv = GtkSource.View() if is_code else Gtk.TextView()
+        body_font = resolve_body_font(self.canvas)
+        tv.override_font(_code_font_of(body_font) if is_code else body_font)
         tv.set_wrap_mode(Gtk.WrapMode.WORD_CHAR)
         tv.set_left_margin(0)
         tv.set_right_margin(0)
