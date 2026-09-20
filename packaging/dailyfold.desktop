@@ -1,0 +1,9 @@
+[Desktop Entry]
+Type=Application
+Name=Dailyfold
+Exec=dailyfold
+TryExec=dailyfold
+Icon=dailyfold
+Terminal=false
+Categories=Office;
+Keywords=Journal;Notes;Outliner;

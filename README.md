@@ -94,3 +94,30 @@ scripts/ui.py stop
 Use `scripts/ui.py status` for the display, process IDs, and window geometry,
 or `scripts/ui.py logs` if the app exits. Set `DAILYFOLD_UI_DISPLAY=:N` before
 `start` to request a particular free X display.
+
+## Fedora RPM
+
+Build a native, architecture-independent Fedora package with:
+
+```
+sudo dnf install rpm-build desktop-file-utils
+scripts/build-rpm
+```
+
+The resulting package is written to `dist/`. Install the path printed by the
+build script using DNF so that the GTK and Python runtime dependencies are
+resolved automatically:
+
+```
+sudo dnf install ./dist/dailyfold-latest.noarch.rpm
+```
+
+Rebuild and run `sudo dnf upgrade ./dist/dailyfold-latest.noarch.rpm` when
+updating Dailyfold. Remove the application with `sudo dnf remove dailyfold`.
+RPM installation and removal do not touch journal data in
+`$XDG_DATA_HOME/dailyfold`.
+
+## License
+
+Dailyfold is licensed under the GNU General Public License version 3. See
+[LICENSE](LICENSE).

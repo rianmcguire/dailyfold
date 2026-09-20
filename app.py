@@ -2444,6 +2444,7 @@ class SearchDialog(Gtk.Dialog):
 class AppWindow(Gtk.Window):
     def __init__(self, data_dir, initial_day=None):
         super().__init__(title="dailyfold")
+        self.set_icon_name("dailyfold")
         self.data_dir = os.path.abspath(os.path.expanduser(data_dir))
         self.current_day = initial_day or date.today()
         self.document = self._load_day(self.current_day)

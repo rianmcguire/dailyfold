@@ -1,0 +1,74 @@
+#!/usr/bin/bash
+
+set -euo pipefail
+
+repo_dir=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)
+spec_file="$repo_dir/packaging/dailyfold.spec"
+
+if ! command -v rpmbuild >/dev/null 2>&1; then
+    echo "rpmbuild is required; install it with: sudo dnf install rpm-build" >&2
+    exit 1
+fi
+
+version=$(sed -nE 's/^Version:[[:space:]]+([^[:space:]]+).*/\1/p' "$spec_file")
+if [[ -z "$version" ]]; then
+    echo "Could not read Version from $spec_file" >&2
+    exit 1
+fi
+
+commit_count=$(git -C "$repo_dir" rev-list --count HEAD)
+commit_id=$(git -C "$repo_dir" rev-parse --short=12 HEAD)
+release="0.${commit_count}.git${commit_id}"
+if [[ -n $(git -C "$repo_dir" status --porcelain --untracked-files=normal) ]]; then
+    release="${release}.dirty.$(date -u +%Y%m%d%H%M%S)"
+fi
+
+build_dir=$(mktemp -d /tmp/dailyfold-rpm.XXXXXX)
+trap 'rm -rf -- "$build_dir"' EXIT
+mkdir -p "$build_dir"/{BUILD,BUILDROOT,RPMS,SOURCES,SPECS,SRPMS}
+
+source_archive="$build_dir/SOURCES/dailyfold-${version}.tar.gz"
+source_date=$(git -C "$repo_dir" log -1 --format=%ct)
+source_files=(
+    LICENSE
+    README.md
+    TODO.md
+    app.py
+    history.py
+    markdown.py
+    model.py
+    search.py
+    storage.py
+    test_markdown.py
+    test_search.py
+    test_storage.py
+    tests.py
+    packaging
+)
+
+tar --create --gzip --file "$source_archive" \
+    --directory "$repo_dir" \
+    --sort=name \
+    --mtime="@$source_date" \
+    --owner=0 --group=0 --numeric-owner \
+    --transform="s,^,dailyfold-${version}/," \
+    "${source_files[@]}"
+
+rpmbuild \
+    --define "_topdir $build_dir" \
+    --define "dailyfold_release $release" \
+    -bb "$spec_file"
+
+shopt -s nullglob
+rpm_files=("$build_dir"/RPMS/noarch/dailyfold-*.noarch.rpm)
+if (( ${#rpm_files[@]} != 1 )); then
+    echo "Expected one noarch RPM, found ${#rpm_files[@]}" >&2
+    exit 1
+fi
+
+output="$repo_dir/dist/$(basename -- "${rpm_files[0]}")"
+install -Dm 0644 "${rpm_files[0]}" "$output"
+latest="$repo_dir/dist/dailyfold-latest.noarch.rpm"
+ln -sfn -- "$(basename -- "$output")" "$latest"
+printf 'Built %s\n' "$output"
+printf 'Install with: sudo dnf install %q\n' "$latest"
