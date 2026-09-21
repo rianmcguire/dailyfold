@@ -17,6 +17,9 @@ handler; an ordinary click continues to enter editing mode.
 
 ## Development
 
+Use the system Python at `/usr/bin/python3` for development and tests. The
+`python3` found earlier on `PATH` may not include the system GTK bindings.
+
 ### Running
 
 ```
