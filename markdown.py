@@ -10,6 +10,7 @@ from dataclasses import dataclass, field
 from html import escape as html_escape
 import re
 import string
+import unicodedata
 from urllib.parse import urlsplit
 from xml.sax.saxutils import escape as xml_escape
 
@@ -95,6 +96,44 @@ def _unescape_punctuation(value: str) -> str:
         result.append(value[i])
         i += 1
     return "".join(result)
+
+
+def _is_punctuation(char: str) -> bool:
+    return char in string.punctuation or unicodedata.category(char).startswith(
+        "P"
+    )
+
+
+def _underscore_flanking(
+    source: str, start: int, length: int
+) -> tuple[bool, bool, bool, bool]:
+    """Return CommonMark-style left/right flanking for an underscore run."""
+    before = source[start - 1] if start > 0 else "\n"
+    after_pos = start + length
+    after = source[after_pos] if after_pos < len(source) else "\n"
+    before_punctuation = _is_punctuation(before)
+    after_punctuation = _is_punctuation(after)
+    left_flanking = not after.isspace() and (
+        not after_punctuation or before.isspace() or before_punctuation
+    )
+    right_flanking = not before.isspace() and (
+        not before_punctuation or after.isspace() or after_punctuation
+    )
+    return left_flanking, right_flanking, before_punctuation, after_punctuation
+
+
+def _underscore_can_open(source: str, start: int, length: int) -> bool:
+    left, right, before_punctuation, _ = _underscore_flanking(
+        source, start, length
+    )
+    return left and (not right or before_punctuation)
+
+
+def _underscore_can_close(source: str, start: int, length: int) -> bool:
+    left, right, _, after_punctuation = _underscore_flanking(
+        source, start, length
+    )
+    return right and (not left or after_punctuation)
 
 
 def _safe_link_destination(value: str) -> bool:
@@ -216,7 +255,14 @@ def _parse_sequence(
                 continue
             return pieces, i + 1, True
 
-        if stop is not None and source.startswith(stop, i):
+        if (
+            stop is not None
+            and source.startswith(stop, i)
+            and (
+                not stop.startswith("_")
+                or _underscore_can_close(source, i, len(stop))
+            )
+        ):
             return pieces, i + len(stop), True
 
         if source[i] == "`":
@@ -267,8 +313,22 @@ def _parse_sequence(
                 continue
 
         matched_delimiter = False
-        for delimiter, name in (("**", "bold"), ("~~", "strike"), ("*", "italic")):
+        for delimiter, name in (
+            ("**", "bold"),
+            ("~~", "strike"),
+            ("*", "italic"),
+            ("_", "italic"),
+        ):
             if not source.startswith(delimiter, i):
+                continue
+            if delimiter == "_" and (
+                (i > 0 and source[i - 1] == "_")
+                or (i + 1 < end and source[i + 1] == "_")
+            ):
+                continue
+            if delimiter.startswith("_") and not _underscore_can_open(
+                source, i, len(delimiter)
+            ):
                 continue
             inner, after, closed = _parse_sequence(
                 source,

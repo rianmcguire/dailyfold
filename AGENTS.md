@@ -8,7 +8,8 @@ Press `Ctrl+Shift+F` to search block text across every journal. Results are show
 newest day first, capped at 50, with their date and ancestor blocks as breadcrumb
 context. Open a result to jump to the block with the matching text selected.
 
-Inline Markdown supports `**bold**`, `*italic*`, `` `code` ``, `~~strikethrough~~`,
+Inline Markdown supports `**bold**`, `*italic*`, `_italic_`, `` `code` ``,
+`~~strikethrough~~`,
 backslash escapes, `[label](destination)` links, angle-bracket autolinks, and bare
 HTTP(S) URLs. Emphasis and strikethrough can be nested.
 Hold Ctrl and click a rendered web or email link to open it with the system

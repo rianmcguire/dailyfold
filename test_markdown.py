@@ -1,4 +1,5 @@
 import unittest
+from pathlib import Path
 
 from markdown import (
     link_url_at_display_offset,
@@ -10,6 +11,27 @@ from markdown import (
 
 
 class TestParseInline(unittest.TestCase):
+    def test_bundled_example_uses_renderable_italic_markers(self):
+        example = Path(__file__).with_name("example.md").read_text(
+            encoding="utf-8"
+        )
+        lines = example.splitlines()
+        italic_example = next(
+            line for line in lines if "inline markdown:" in line
+        )
+        nested_example = next(
+            line for line in lines if "combined formatting:" in line
+        )
+
+        self.assertIn(
+            "<i>italic</i>",
+            runs_to_markup(parse_inline(italic_example).runs),
+        )
+        self.assertIn(
+            "<i>nested italic</i>",
+            runs_to_markup(parse_inline(nested_example).runs),
+        )
+
     def test_plain_text_maps_every_display_boundary_to_source(self):
         parsed = parse_inline("plain")
 
@@ -32,6 +54,39 @@ class TestParseInline(unittest.TestCase):
             runs_to_markup(parsed.runs),
             "<b>bold</b> <i>italic</i> <tt>code</tt> &amp; plain",
         )
+
+    def test_underscore_emphasis_renders_as_italic(self):
+        parsed = parse_inline("_italic_")
+
+        self.assertEqual(parsed.display_text, "italic")
+        self.assertEqual(
+            runs_to_markup(parsed.runs),
+            "<i>italic</i>",
+        )
+
+    def test_underscore_emphasis_can_nest(self):
+        parsed = parse_inline("**bold with _italic_ inside**")
+
+        self.assertEqual(parsed.display_text, "bold with italic inside")
+        self.assertEqual(
+            [(run.text, run.style) for run in parsed.runs],
+            [
+                ("bold with ", frozenset({"bold"})),
+                ("italic", frozenset({"bold", "italic"})),
+                (" inside", frozenset({"bold"})),
+            ],
+        )
+
+    def test_underscores_inside_words_stay_literal(self):
+        parsed = parse_inline("snake_case and foo__bar__baz")
+
+        self.assertEqual(parsed.display_text, "snake_case and foo__bar__baz")
+        self.assertTrue(all(not run.style for run in parsed.runs))
+
+    def test_underscore_emphasis_maps_display_boundaries_to_source(self):
+        parsed = parse_inline("_word_")
+
+        self.assertEqual(parsed.display_to_source, (1, 2, 3, 4, 5))
 
     def test_end_of_styled_text_stays_inside_closing_marker(self):
         parsed = parse_inline("**bold**")
