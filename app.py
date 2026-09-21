@@ -1759,6 +1759,22 @@ class BlocksView(Gtk.Overlay):
         if is_code and not force_split:
             return False
         block = self.editing_block
+        b = self._block_index(block)
+        has_children = self._subtree_end(b) > b + 1
+
+        if (
+            not force_split
+            and not block.text
+            and block.level > 0
+            and not has_children
+        ):
+            pre = self._begin_structural()
+            self._shift_levels(b, b + 1, shift=True)
+            self._end_structural(pre)
+            self.canvas.queue_draw()
+            self.queue_resize()
+            return True
+
         buf = self.edit_view.get_buffer()
         offset = buf.get_iter_at_mark(buf.get_insert()).get_offset()
 
@@ -1768,12 +1784,10 @@ class BlocksView(Gtk.Overlay):
                 return self._convert_to_code_block(m.group(1))
 
         pre = self._begin_structural()
-        b = self._block_index(self.editing_block)
 
         left = block.text[:offset]
         right = block.text[offset:]
 
-        has_children = self._subtree_end(b) > b + 1
         if has_children and block.collapsed:
             block.collapsed = False
         new_level = block.level + 1 if has_children else block.level

@@ -45,6 +45,7 @@ class _StubView:
     _paste_internal_blocks_from_editor = (
         BlocksView._paste_internal_blocks_from_editor
     )
+    _handle_enter = BlocksView._handle_enter
 
 
 def view(*levels_and_texts):
@@ -627,6 +628,48 @@ class TestShiftLevels(unittest.TestCase):
         v = view((0, "A"), (1, "B"), (0, "C"))
         self.assertFalse(v._shift_levels(0, 3, shift=True))
         self.assertEqual(levels(v), [0, 1, 0])
+
+
+class TestEnter(unittest.TestCase):
+    def test_nested_empty_block_outdents_instead_of_creating_a_block(self):
+        v = view((0, "A"), (1, ""), (0, "B"))
+        v.editing_block = v.blocks[1]
+        v._begin_structural = lambda: "before"
+        committed = []
+        v._end_structural = committed.append
+        v.queue_resize = lambda: None
+
+        self.assertTrue(v._handle_enter())
+
+        self.assertEqual(
+            shape(v),
+            [(0, "A"), (0, ""), (0, "B")],
+        )
+        self.assertEqual(committed, ["before"])
+
+    def test_blank_parent_keeps_normal_enter_behavior(self):
+        v = view((0, "A"), (1, ""), (2, "child"), (0, "B"))
+        v.editing_block = v.blocks[1]
+        buf = SimpleNamespace(
+            get_insert=lambda: None,
+            get_iter_at_mark=lambda _mark: SimpleNamespace(
+                get_offset=lambda: 0
+            ),
+            set_text=lambda _text: None,
+        )
+        v.edit_view = SimpleNamespace(get_buffer=lambda: buf)
+        v._begin_structural = lambda: "before"
+        v._end_structural = lambda _pre: None
+        moved = []
+        v._move_to_block = lambda *position: moved.append(position)
+
+        self.assertTrue(v._handle_enter())
+
+        self.assertEqual(
+            shape(v),
+            [(0, "A"), (1, ""), (2, ""), (2, "child"), (0, "B")],
+        )
+        self.assertEqual(moved, [(2, 0, 0)])
 
 
 class TestMoveRange(unittest.TestCase):
