@@ -2,6 +2,8 @@
 
 A daily outliner. GTK3, one markdown file per day.
 
+![dailyfold window showing example content](screenshot.png)
+
 Heavily inspired by [Logseq](https://logseq.com/)'s journal, and the files are (roughly) compatible.
 
 ## Installing
