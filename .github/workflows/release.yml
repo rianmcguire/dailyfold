@@ -64,6 +64,6 @@ jobs:
               gh release create "$tag" "$rpm_file" \
                   --repo "$GITHUB_REPOSITORY" \
                   --target "$GITHUB_SHA" \
-                  --title "Dailyfold build $short_sha" \
+                  --title "dailyfold build $short_sha" \
                   --notes "Automated RPM build for commit $GITHUB_SHA."
           fi

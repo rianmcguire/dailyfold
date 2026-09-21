@@ -79,6 +79,8 @@ SEARCH_MATCH_BG = "#fff0a8"
 SEARCH_MATCH_FG = "#222222"
 SEARCH_RESULT_LIMIT = 50
 CONTENT_FONT_SCALE = 1.1
+APPLICATION_NAME = "dailyfold"
+PROGRAM_NAME = "dailyfold"
 
 
 @dataclass
@@ -2676,6 +2678,10 @@ class AppWindow(Gtk.Window):
 
 
 def main():
+    GLib.set_prgname(PROGRAM_NAME)
+    GLib.set_application_name(APPLICATION_NAME)
+    Gdk.set_program_class(APPLICATION_NAME)
+
     p = argparse.ArgumentParser()
     p.add_argument(
         "--data-dir",

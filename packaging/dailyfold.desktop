@@ -1,9 +1,10 @@
 [Desktop Entry]
 Type=Application
-Name=Dailyfold
+Name=dailyfold
 Exec=dailyfold
 TryExec=dailyfold
 Icon=dailyfold
+StartupWMClass=dailyfold
 Terminal=false
 Categories=Office;
 Keywords=Journal;Notes;Outliner;

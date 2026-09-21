@@ -21,8 +21,7 @@ Requires:       python3-cairo
 Requires:       python3-gobject
 
 %description
-Dailyfold is a GTK daily-journal outliner. It stores journal pages as Markdown,
-one file per day.
+dailyfold is a daily journal outliner.
 
 %prep
 %autosetup

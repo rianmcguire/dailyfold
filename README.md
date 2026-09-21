@@ -19,5 +19,5 @@ The resulting package is written to `dist/`.
 
 ## License
 
-Dailyfold is licensed under the GNU General Public License version 3. See
+dailyfold is licensed under the GNU General Public License version 3. See
 [LICENSE](LICENSE).
