@@ -30,7 +30,7 @@ dailyfold is a daily journal outliner.
 
 %install
 install -d %{buildroot}%{_libexecdir}/dailyfold
-install -pm 0644 app.py history.py markdown.py model.py search.py storage.py \
+install -pm 0644 app.py example.md history.py markdown.py model.py search.py storage.py \
     %{buildroot}%{_libexecdir}/dailyfold/
 install -Dpm 0755 packaging/dailyfold \
     %{buildroot}%{_bindir}/dailyfold
@@ -49,6 +49,7 @@ desktop-file-validate packaging/dailyfold.desktop
 %{_bindir}/dailyfold
 %dir %{_libexecdir}/dailyfold
 %{_libexecdir}/dailyfold/*.py
+%{_libexecdir}/dailyfold/example.md
 %{_datadir}/applications/dailyfold.desktop
 %{_datadir}/icons/hicolor/scalable/apps/dailyfold.svg
 

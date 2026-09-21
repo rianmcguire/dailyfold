@@ -35,6 +35,7 @@ from storage import (
     journal_path,
     load_document,
     save_journal_document,
+    seed_journal_from_template,
 )
 
 
@@ -81,6 +82,9 @@ SEARCH_RESULT_LIMIT = 50
 CONTENT_FONT_SCALE = 1.1
 APPLICATION_NAME = "dailyfold"
 PROGRAM_NAME = "dailyfold"
+EXAMPLE_JOURNAL_PATH = os.path.join(
+    os.path.dirname(os.path.abspath(__file__)), "example.md"
+)
 
 
 @dataclass
@@ -2695,7 +2699,13 @@ def main():
     args = p.parse_args()
 
     data_dir = args.data_dir or default_data_dir()
-    win = AppWindow(data_dir)
+    today = date.today()
+    try:
+        seed_journal_from_template(data_dir, today, EXAMPLE_JOURNAL_PATH)
+    except OSError as error:
+        print(f"Could not initialize {data_dir}: {error}", file=sys.stderr)
+
+    win = AppWindow(data_dir, initial_day=today)
     win.show_all()
 
     def _graceful_quit():

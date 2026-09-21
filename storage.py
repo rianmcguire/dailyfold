@@ -69,6 +69,20 @@ def journal_dates(data_dir):
     return days
 
 
+def seed_journal_from_template(data_dir, day, template_path):
+    """Create *day* from *template_path* when the data directory is empty."""
+    try:
+        with os.scandir(data_dir) as entries:
+            if next(entries, None) is not None:
+                return False
+    except FileNotFoundError:
+        pass
+
+    document = load_document(template_path)
+    save_journal_document(journal_path(data_dir, day), document)
+    return True
+
+
 def _indent_width(indent):
     return sum(2 if char == "\t" else 1 for char in indent)
 

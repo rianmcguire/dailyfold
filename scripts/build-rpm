@@ -34,6 +34,7 @@ source_files=(
     README.md
     TODO.md
     app.py
+    example.md
     history.py
     markdown.py
     model.py

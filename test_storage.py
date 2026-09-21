@@ -14,6 +14,7 @@ from storage import (
     parse_document,
     save_document,
     save_journal_document,
+    seed_journal_from_template,
     serialize_document,
 )
 
@@ -220,6 +221,66 @@ class TestDocumentIsEmpty(unittest.TestCase):
 
 
 class TestJournalStorage(unittest.TestCase):
+    def test_seeds_empty_data_dir_from_template(self):
+        with tempfile.TemporaryDirectory() as directory:
+            data_dir = os.path.join(directory, "journal")
+            os.mkdir(data_dir)
+            template_path = os.path.join(directory, "example.md")
+            with open(template_path, "w", encoding="utf-8") as handle:
+                handle.write("- welcome\n  - first child\n")
+
+            seeded = seed_journal_from_template(
+                data_dir, date(2026, 9, 21), template_path
+            )
+
+            self.assertTrue(seeded)
+            document = load_document(
+                os.path.join(data_dir, "2026_09_21.md")
+            )
+            self.assertEqual(
+                block_shape(document),
+                [
+                    (0, "welcome", None, False, ()),
+                    (1, "first child", None, False, ()),
+                ],
+            )
+
+    def test_seeds_missing_data_dir_from_template(self):
+        with tempfile.TemporaryDirectory() as directory:
+            data_dir = os.path.join(directory, "journal")
+            template_path = os.path.join(directory, "example.md")
+            with open(template_path, "w", encoding="utf-8") as handle:
+                handle.write("- welcome\n")
+
+            seeded = seed_journal_from_template(
+                data_dir, date(2026, 9, 21), template_path
+            )
+
+            self.assertTrue(seeded)
+            self.assertTrue(
+                os.path.isfile(os.path.join(data_dir, "2026_09_21.md"))
+            )
+
+    def test_does_not_seed_nonempty_data_dir(self):
+        with tempfile.TemporaryDirectory() as directory:
+            data_dir = os.path.join(directory, "journal")
+            os.mkdir(data_dir)
+            existing_path = os.path.join(data_dir, "notes.txt")
+            with open(existing_path, "w", encoding="utf-8") as handle:
+                handle.write("keep me")
+            template_path = os.path.join(directory, "example.md")
+            with open(template_path, "w", encoding="utf-8") as handle:
+                handle.write("- welcome\n")
+
+            seeded = seed_journal_from_template(
+                data_dir, date(2026, 9, 21), template_path
+            )
+
+            self.assertFalse(seeded)
+            self.assertFalse(
+                os.path.exists(os.path.join(data_dir, "2026_09_21.md"))
+            )
+
     def test_data_dir_environment_override_wins(self):
         self.assertEqual(
             default_data_dir(
