@@ -731,6 +731,30 @@ class TestShiftLevels(unittest.TestCase):
 
 
 class TestEnter(unittest.TestCase):
+    def test_split_parent_before_text_keeps_right_side_with_its_children(self):
+        v = view((0, "a"), (1, "b"), (2, "c"), (2, "d"))
+        v.editing_block = v.blocks[1]
+        buf = SimpleNamespace(
+            get_insert=lambda: None,
+            get_iter_at_mark=lambda _mark: SimpleNamespace(
+                get_offset=lambda: 0
+            ),
+            set_text=lambda text: setattr(v.blocks[1], "text", text),
+        )
+        v.edit_view = SimpleNamespace(get_buffer=lambda: buf)
+        v._begin_structural = lambda: "before"
+        v._end_structural = lambda _pre: None
+        moved = []
+        v._move_to_block = lambda *position: moved.append(position)
+
+        self.assertTrue(v._handle_enter())
+
+        self.assertEqual(
+            shape(v),
+            [(0, "a"), (1, ""), (1, "b"), (2, "c"), (2, "d")],
+        )
+        self.assertEqual(moved, [(2, 0, 0)])
+
     def test_nested_empty_block_outdents_instead_of_creating_a_block(self):
         v = view((0, "A"), (1, ""), (0, "B"))
         v.editing_block = v.blocks[1]

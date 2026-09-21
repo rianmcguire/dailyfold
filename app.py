@@ -1807,7 +1807,10 @@ class BlocksView(Gtk.Overlay):
 
         if has_children and block.collapsed:
             block.collapsed = False
-        new_level = block.level + 1 if has_children else block.level
+        # Splitting before existing text creates a sibling, leaving the
+        # following subtree attached to that right-hand block.  Only Enter at
+        # the end of a parent creates a new first child.
+        new_level = block.level + 1 if has_children and not right else block.level
         insert_idx = b + 1
         new_lang = block.code_lang if is_code and offset < len(block.text) else None
         new_block = Block(level=new_level, text=right, code_lang=new_lang)
