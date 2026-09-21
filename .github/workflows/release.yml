@@ -35,6 +35,9 @@ jobs:
         with:
           fetch-depth: 0
 
+      - name: Match workspace ownership to container user
+        run: chown -R "$(id -u):$(id -g)" "$GITHUB_WORKSPACE"
+
       - name: Run tests
         run: /usr/bin/python3 -m unittest discover -v
 
