@@ -1,22 +1,5 @@
 # TODO
 
-Everything we've discussed but haven't built yet. Grouped roughly in order of what we'd probably want next.
-
-## Markdown rendering
-
-- **Code styling** — `<tt>` gets monospace but no background; once we have theme-aware colors, give code a subtle bg.
-
-## Persistence / journaling (the actual app)
-
-The app now stores one ISO-dated Markdown file per day in an XDG data directory,
-with a configurable override, a persistent calendar sidebar, and a scrolling
-editor. Remaining:
-
-- **Backlinks / page links / tags** — deferred; decide later whether to mimic Logseq here or do something simpler.
-
-## Deferred (explicit not-now)
-
-- **Dark mode** — light colors only for v1. When revisited, pull colors from live `Gtk.StyleContext` rather than hardcoding a dark palette.
-- **Code syntax highlighting** — fenced code blocks use GtkSourceView for editing ergonomics, but syntax highlighting is intentionally disabled for the first pass.
-- **Partial cross-block selection** — explicitly out of scope per editor-model memory. Within-block selection uses TextView natively.
-- **GTK4** — we chose GTK3 for simplicity. Revisit only if we hit CPU-rendering walls.
+- **Dark mode** — pull colors from live `Gtk.StyleContext` rather than hardcoding a dark palette.
+- **Code styling** — `<tt>` has no background. Once we have dark-mode-aware colors, give it a background.
+- **Code syntax highlighting** — fenced code blocks use GtkSourceView, but syntax highlighting is currently disabled
