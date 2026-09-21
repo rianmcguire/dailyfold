@@ -574,6 +574,24 @@ class TestPasteInternalBlocksFromEditor(unittest.TestCase):
         self.assertEqual(shape(v), [(0, "parent"), (1, "child")])
         self.assertEqual(v.selection, (0, 1))
 
+    def test_replaces_empty_block_at_its_existing_level(self):
+        v = view((0, "parent"), (1, ""), (1, "sibling"))
+        self.prepare(v, [Block(0, "pasted"), Block(1, "pasted child")])
+        v.editing_block = v.blocks[1]
+
+        self.assertTrue(v._paste_internal_blocks_from_editor())
+
+        self.assertEqual(
+            shape(v),
+            [
+                (0, "parent"),
+                (1, "pasted"),
+                (2, "pasted child"),
+                (1, "sibling"),
+            ],
+        )
+        self.assertEqual(v.selection, (1, 2))
+
     def test_inserts_after_target_subtree_at_target_level(self):
         v = view((0, "parent"), (1, "target"), (2, "existing child"))
         self.prepare(v, [Block(0, "pasted"), Block(1, "pasted child")])

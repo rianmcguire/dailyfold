@@ -2089,18 +2089,17 @@ class BlocksView(Gtk.Overlay):
 
         target_idx = self._block_index(self.editing_block)
         target = self.blocks[target_idx]
-        replace_empty_page = (
-            len(self.blocks) == 1
-            and target.text == ""
+        replace_empty_block = (
+            target.text == ""
             and target.code_lang is None
             and not target.properties
         )
         pre = self._begin_structural()
         self._finish_editing()
-        if replace_empty_page:
-            self.blocks.clear()
-            insert_idx = 0
-            destination_level = 0
+        if replace_empty_block:
+            insert_idx = target_idx
+            destination_level = target.level
+            del self.blocks[target_idx]
         else:
             insert_idx = self._subtree_end(target_idx)
             destination_level = target.level
