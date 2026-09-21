@@ -1,11 +1,13 @@
 import unittest
 from datetime import date
 from types import SimpleNamespace
+from unittest.mock import patch
 
 from app import (
     Block,
     BlocksView,
     Gdk,
+    Gtk,
     Pango,
     _block_task_state,
     _search_result_markup,
@@ -46,6 +48,7 @@ class _StubView:
     _paste_internal_blocks_from_editor = (
         BlocksView._paste_internal_blocks_from_editor
     )
+    _copy_block_selection = BlocksView._copy_block_selection
     _handle_enter = BlocksView._handle_enter
 
     def get_ancestor(self, widget_type):
@@ -604,6 +607,35 @@ class TestClipboardFormat(unittest.TestCase):
                 '{"version":1,"blocks":[{"level":true}]}'
             )
         )
+
+
+class TestClipboardOwnership(unittest.TestCase):
+    def test_claims_ownership_before_publishing_targets(self):
+        v = view((0, "copied"))
+        v.selection = (0, 0)
+        v._clipboard_targets = [object()]
+        calls = []
+
+        with (
+            patch.object(
+                Gtk,
+                "selection_owner_set",
+                side_effect=lambda *args: calls.append("owner") or True,
+            ),
+            patch.object(
+                Gtk,
+                "selection_clear_targets",
+                side_effect=lambda *args: calls.append("clear"),
+            ),
+            patch.object(
+                Gtk,
+                "selection_add_targets",
+                side_effect=lambda *args: calls.append("targets"),
+            ),
+        ):
+            self.assertTrue(v._copy_block_selection(cut=False))
+
+        self.assertEqual(calls, ["owner", "clear", "targets"])
 
 
 class TestPasteInternalBlocksFromEditor(unittest.TestCase):

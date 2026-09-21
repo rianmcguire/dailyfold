@@ -748,22 +748,18 @@ class BlocksView(Gtk.Overlay):
             ),
             CLIPBOARD_HTML_INFO: Gdk.Atom.intern(CLIPBOARD_HTML_TARGET, False),
         }
-        clipboard_targets = [
-            (CLIPBOARD_BLOCKS_TARGET, CLIPBOARD_BLOCKS_INFO),
-            (CLIPBOARD_HTML_TARGET, CLIPBOARD_HTML_INFO),
-            ("text/plain;charset=utf-8", CLIPBOARD_TEXT_INFO),
-            ("text/plain", CLIPBOARD_TEXT_INFO),
-            ("UTF8_STRING", CLIPBOARD_TEXT_INFO),
-            ("TEXT", CLIPBOARD_TEXT_INFO),
-            ("STRING", CLIPBOARD_TEXT_INFO),
+        self._clipboard_targets = [
+            Gtk.TargetEntry.new(target, 0, info)
+            for target, info in [
+                (CLIPBOARD_BLOCKS_TARGET, CLIPBOARD_BLOCKS_INFO),
+                (CLIPBOARD_HTML_TARGET, CLIPBOARD_HTML_INFO),
+                ("text/plain;charset=utf-8", CLIPBOARD_TEXT_INFO),
+                ("text/plain", CLIPBOARD_TEXT_INFO),
+                ("UTF8_STRING", CLIPBOARD_TEXT_INFO),
+                ("TEXT", CLIPBOARD_TEXT_INFO),
+                ("STRING", CLIPBOARD_TEXT_INFO),
+            ]
         ]
-        for target, info in clipboard_targets:
-            Gtk.selection_add_target(
-                self.canvas,
-                Gdk.SELECTION_CLIPBOARD,
-                Gdk.Atom.intern(target, False),
-                info,
-            )
         self.add(self.canvas)
 
         self.connect("get-child-position", self._position_overlay)
@@ -2036,9 +2032,19 @@ class BlocksView(Gtk.Overlay):
         self._clipboard_plain_text = blocks_to_clipboard_text(copied)
         self._clipboard_html = blocks_to_clipboard_html(copied)
         self._clipboard_payload = blocks_to_clipboard_payload(copied)
-        if not Gtk.selection_owner_set(
+        if Gtk.selection_owner_set(
             self.canvas, Gdk.SELECTION_CLIPBOARD, Gdk.CURRENT_TIME
         ):
+            # On Wayland, publishing targets creates the compositor-facing
+            # data source. Do it only after the realized canvas owns the
+            # selection so ownership loss can cancel that source normally.
+            Gtk.selection_clear_targets(self.canvas, Gdk.SELECTION_CLIPBOARD)
+            Gtk.selection_add_targets(
+                self.canvas,
+                Gdk.SELECTION_CLIPBOARD,
+                self._clipboard_targets,
+            )
+        else:
             Gtk.Clipboard.get(Gdk.SELECTION_CLIPBOARD).set_text(
                 self._clipboard_plain_text, -1
             )
