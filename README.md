@@ -117,6 +117,10 @@ updating Dailyfold. Remove the application with `sudo dnf remove dailyfold`.
 RPM installation and removal do not touch journal data in
 `$XDG_DATA_HOME/dailyfold`.
 
+Every push to `main` is tested and packaged by GitHub Actions. The resulting
+RPM is attached to a commit-specific release on the
+[GitHub releases page](https://github.com/rianmcguire/dailyfold/releases).
+
 ## License
 
 Dailyfold is licensed under the GNU General Public License version 3. See

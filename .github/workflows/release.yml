@@ -1,0 +1,66 @@
+name: Test, build, and release
+
+on:
+  push:
+    branches:
+      - main
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    container: fedora:latest
+    defaults:
+      run:
+        shell: bash
+
+    steps:
+      - name: Install build dependencies
+        run: >-
+          dnf install -y
+          desktop-file-utils
+          gh
+          git
+          gtk3
+          gtksourceview4
+          python3
+          python3-cairo
+          python3-gobject
+          rpm-build
+
+      - name: Check out repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Run tests
+        run: /usr/bin/python3 -m unittest discover -v
+
+      - name: Build RPM
+        run: scripts/build-rpm
+
+      - name: Publish GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          rpm_file=$(find dist -maxdepth 1 -type f -name 'dailyfold-*.noarch.rpm' -print -quit)
+          if [[ -z "$rpm_file" ]]; then
+              echo "Built RPM not found" >&2
+              exit 1
+          fi
+
+          tag="build-${GITHUB_SHA}"
+          short_sha=${GITHUB_SHA:0:12}
+          if gh release view "$tag" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+              gh release upload "$tag" "$rpm_file" \
+                  --clobber \
+                  --repo "$GITHUB_REPOSITORY"
+          else
+              gh release create "$tag" "$rpm_file" \
+                  --repo "$GITHUB_REPOSITORY" \
+                  --target "$GITHUB_SHA" \
+                  --title "Dailyfold build $short_sha" \
+                  --notes "Automated RPM build for commit $GITHUB_SHA."
+          fi
