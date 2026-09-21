@@ -48,22 +48,33 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          rpm_file=$(find dist -maxdepth 1 -type f -name 'dailyfold-*.noarch.rpm' -print -quit)
+          rpm_file=$(find dist -maxdepth 1 -type f -name 'dailyfold-*.noarch.rpm' \
+              ! -name 'dailyfold-latest.noarch.rpm' -print -quit)
           if [[ -z "$rpm_file" ]]; then
               echo "Built RPM not found" >&2
+              exit 1
+          fi
+
+          latest_rpm=dist/dailyfold-latest.noarch.rpm
+          if [[ ! -f "$latest_rpm" ]]; then
+              echo "Latest RPM alias not found" >&2
               exit 1
           fi
 
           tag="build-${GITHUB_SHA}"
           short_sha=${GITHUB_SHA:0:12}
           if gh release view "$tag" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
-              gh release upload "$tag" "$rpm_file" \
+              gh release upload "$tag" "$rpm_file" "$latest_rpm" \
                   --clobber \
                   --repo "$GITHUB_REPOSITORY"
+              gh release edit "$tag" \
+                  --latest \
+                  --repo "$GITHUB_REPOSITORY"
           else
-              gh release create "$tag" "$rpm_file" \
+              gh release create "$tag" "$rpm_file" "$latest_rpm" \
                   --repo "$GITHUB_REPOSITORY" \
                   --target "$GITHUB_SHA" \
+                  --latest \
                   --title "dailyfold build $short_sha" \
                   --notes "Automated RPM build for commit $GITHUB_SHA."
           fi
