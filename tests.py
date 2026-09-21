@@ -27,6 +27,7 @@ from history import History
 
 
 class _StubView:
+    _grab_canvas_focus = BlocksView._grab_canvas_focus
     _on_click = BlocksView._on_click
     _block_index = BlocksView._block_index
     _parent_index = BlocksView._parent_index
@@ -47,6 +48,9 @@ class _StubView:
     )
     _handle_enter = BlocksView._handle_enter
 
+    def get_ancestor(self, widget_type):
+        return None
+
 
 def view(*levels_and_texts):
     v = _StubView()
@@ -57,11 +61,34 @@ def view(*levels_and_texts):
 
 
 class _StubCanvas:
+    def __init__(self):
+        self.focus_callback = None
+
     def queue_draw(self):
         pass
 
     def grab_focus(self):
-        pass
+        if self.focus_callback is not None:
+            self.focus_callback()
+
+
+class _StubAdjustment:
+    def __init__(self, value):
+        self.value = value
+
+    def get_value(self):
+        return self.value
+
+    def set_value(self, value):
+        self.value = value
+
+
+class _StubScroller:
+    def __init__(self, adjustment):
+        self.adjustment = adjustment
+
+    def get_vadjustment(self):
+        return self.adjustment
 
 
 class _StubPangoContext:
@@ -86,6 +113,29 @@ def levels(v):
 
 def shape(v):
     return [(b.level, b.text) for b in v.blocks]
+
+
+class TestCanvasFocus(unittest.TestCase):
+    def test_preserves_scroll_position_when_focus_scrolls_canvas_to_top(self):
+        v = view((0, "block"))
+        adjustment = _StubAdjustment(420)
+        scroller = _StubScroller(adjustment)
+        v.get_ancestor = lambda widget_type: scroller
+        v.canvas.focus_callback = lambda: adjustment.set_value(0)
+
+        v._grab_canvas_focus()
+
+        self.assertEqual(adjustment.get_value(), 420)
+
+    def test_grabs_focus_without_a_scroller(self):
+        v = view((0, "block"))
+        focused = []
+        v.get_ancestor = lambda widget_type: None
+        v.canvas.focus_callback = lambda: focused.append(True)
+
+        v._grab_canvas_focus()
+
+        self.assertEqual(focused, [True])
 
 
 class TestJournalDateFormatting(unittest.TestCase):

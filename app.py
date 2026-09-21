@@ -833,6 +833,21 @@ class BlocksView(Gtk.Overlay):
     def ensure_block_visible(self, block):
         GLib.idle_add(self._ensure_block_visible, block)
 
+    def _grab_canvas_focus(self):
+        scroller = self.get_ancestor(Gtk.ScrolledWindow)
+        adjustment = (
+            scroller.get_vadjustment() if scroller is not None else None
+        )
+        scroll_position = (
+            adjustment.get_value() if adjustment is not None else None
+        )
+        self.canvas.grab_focus()
+        if adjustment is not None:
+            # GtkScrolledWindow tries to reveal the focused widget. The canvas
+            # spans the whole document, so focusing it otherwise reveals its
+            # top edge and jumps to the beginning of the journal.
+            adjustment.set_value(scroll_position)
+
     def focus_search_result(self, block_index, match_start, match_end):
         """Reveal a search hit, enter editing, and select its first match."""
         if not (0 <= block_index < len(self.blocks)):
@@ -976,7 +991,7 @@ class BlocksView(Gtk.Overlay):
                 anchor_idx = self._block_index(self.editing_block)
                 self._finish_editing()
                 self.selection = (anchor_idx, target_idx)
-                self.canvas.grab_focus()
+                self._grab_canvas_focus()
                 self.canvas.queue_draw()
                 return True
             if self.selection is not None:
@@ -992,14 +1007,14 @@ class BlocksView(Gtk.Overlay):
             target_idx = self._block_index(target_bl.block)
             if self._toggle_task_blocks([target_idx]):
                 self.selection = None
-                self.canvas.grab_focus()
+                self._grab_canvas_focus()
                 return True
 
         if target_bl is not None and self._bullet_hit(target_bl, event.x, event.y):
             target_idx = self._block_index(target_bl.block)
             if self._toggle_fold(target_idx):
                 self.selection = None
-                self.canvas.grab_focus()
+                self._grab_canvas_focus()
                 return True
 
         if self.edit_view is not None:
@@ -1528,7 +1543,7 @@ class BlocksView(Gtk.Overlay):
             _, anchor, head = cursor
             n = len(self.blocks)
             self.selection = (max(0, min(anchor, n - 1)), max(0, min(head, n - 1)))
-            self.canvas.grab_focus()
+            self._grab_canvas_focus()
             self.canvas.queue_draw()
             self.queue_resize()
             self.ensure_block_visible(self.blocks[self.selection[1]])
@@ -1904,7 +1919,7 @@ class BlocksView(Gtk.Overlay):
         idx = self._block_index(self.editing_block)
         self._finish_editing()
         self.selection = (idx, idx)
-        self.canvas.grab_focus()
+        self._grab_canvas_focus()
         self.canvas.queue_draw()
         return True
 
@@ -2077,7 +2092,7 @@ class BlocksView(Gtk.Overlay):
         self.blocks[insert_idx:insert_idx] = inserted
         self.selection = (insert_idx, insert_idx + len(inserted) - 1)
         self._end_structural(pre)
-        self.canvas.grab_focus()
+        self._grab_canvas_focus()
         self.canvas.queue_draw()
         self.queue_resize()
         return True
@@ -2242,7 +2257,7 @@ class BlocksView(Gtk.Overlay):
         anchor = self._drag_anchor_idx
         self._finish_editing()
         self.selection = (anchor, cur_idx)
-        self.canvas.grab_focus()
+        self._grab_canvas_focus()
         self.canvas.queue_draw()
         return True
 
@@ -2270,7 +2285,7 @@ class BlocksView(Gtk.Overlay):
             anchor = self._drag_anchor_idx
             self._finish_editing()
             self.selection = (anchor, cur_idx)
-            self.canvas.grab_focus()
+            self._grab_canvas_focus()
             self.canvas.queue_draw()
             return False
         if self.selection is not None:
