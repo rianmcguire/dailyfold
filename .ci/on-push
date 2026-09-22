@@ -1,0 +1,22 @@
+#!/bin/sh
+set -eu
+
+# The checkout is a Git worktree, so mount both it and its bare repository at
+# their original paths. build-rpm reads Git history to choose the RPM release.
+image=localhost/dailyfold-ci
+podman build --tag "$image" --file .ci/Containerfile .ci
+podman run --rm \
+    --volume "$PWD:$PWD" \
+    --volume "$CI_REPO:$CI_REPO:ro" \
+    --workdir "$PWD" \
+    --log-driver=none \
+    "$image" \
+    /bin/sh -eu -c '
+        /usr/bin/python3 -m unittest discover -v
+        scripts/build-rpm
+    '
+
+if [ "${CI_REF:-}" = main ]; then
+    # TODO: Upload the RPM from dist/ to the release destination.
+    :
+fi
