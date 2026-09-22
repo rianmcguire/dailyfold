@@ -34,21 +34,23 @@ source_files=(
     README.md
     TODO.md
     app.py
+    block_markdown.py
     blocks_view.py
     clipboard.py
     example.md
     history.py
-    markdown.py
+    inline_markdown.py
     model.py
     outline.py
     search.py
     search_dialog.py
     storage.py
     window.py
+    test_block_markdown.py
     test_blocks_view.py
     test_clipboard.py
     test_history.py
-    test_markdown.py
+    test_inline_markdown.py
     test_outline.py
     test_search.py
     test_search_dialog.py

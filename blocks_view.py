@@ -12,6 +12,7 @@ gi.require_version("PangoCairo", "1.0")
 gi.require_version("GtkSource", "4")
 from gi.repository import Gdk, GLib, Gtk, GtkSource, Pango, PangoCairo
 
+from block_markdown import CODE_FENCE_RE
 from clipboard import (
     CLIPBOARD_BLOCKS_INFO,
     CLIPBOARD_BLOCKS_TARGET,
@@ -27,7 +28,7 @@ from clipboard import (
     link_from_paste,
 )
 from history import History
-from markdown import (
+from inline_markdown import (
     display_char_from_byte,
     link_url_at_display_offset,
     parse_inline,
@@ -52,7 +53,6 @@ from outline import (
 )
 
 
-CODE_FENCE_RE = re.compile(r"^```([a-zA-Z0-9_+\-]*)$")
 CODE_INDENT_WIDTH = 4
 
 

@@ -2,9 +2,10 @@ from datetime import date
 import tempfile
 import unittest
 
+from block_markdown import MarkdownDocument
 from model import Block
 from search import compact_block_text, search_journals
-from storage import MarkdownDocument, journal_path, save_document
+from storage import journal_path, save_document
 
 
 class TestSearchJournals(unittest.TestCase):

@@ -13,7 +13,6 @@ from clipboard import (
     blocks_from_clipboard_text,
     blocks_to_clipboard_html,
     blocks_to_clipboard_payload,
-    blocks_to_clipboard_text,
     copy_blocks,
     link_from_paste,
 )
@@ -59,57 +58,6 @@ class TestClipboardFormat(unittest.TestCase):
             [(b.level, b.text) for b in copied],
             [(0, "A"), (1, "B"), (0, "C")],
         )
-
-    def test_serializes_outline_as_markdown(self):
-        blocks = [Block(1, "parent"), Block(2, "child"), Block(1, "sibling")]
-        self.assertEqual(
-            blocks_to_clipboard_text(blocks),
-            "- parent\n  - child\n- sibling",
-        )
-
-    def test_serializes_multiline_block(self):
-        self.assertEqual(
-            blocks_to_clipboard_text([Block(0, "first\nsecond")]),
-            "- first\n  second",
-        )
-
-    def test_serializes_code_block(self):
-        block = Block(0, "print('hi')\nreturn", code_lang="python")
-        self.assertEqual(
-            blocks_to_clipboard_text([block]),
-            "- ```python\n  print('hi')\n  return\n  ```",
-        )
-
-    def test_parses_markdown_outline(self):
-        blocks = blocks_from_clipboard_text("- parent\n  - child\n- sibling")
-        self.assertEqual(
-            [(b.level, b.text, b.code_lang) for b in blocks],
-            [(0, "parent", None), (1, "child", None), (0, "sibling", None)],
-        )
-
-    def test_accepts_four_space_and_tab_indentation(self):
-        spaced = blocks_from_clipboard_text(
-            "- parent\n    - child\n        - grandchild"
-        )
-        tabbed = blocks_from_clipboard_text(
-            "- parent\n\t- child\n\t\t- grandchild"
-        )
-        self.assertEqual([b.level for b in spaced], [0, 1, 2])
-        self.assertEqual([b.level for b in tabbed], [0, 1, 2])
-
-    def test_parses_multiline_and_code_blocks(self):
-        text = "- first\n  second\n- ```python\n  print('hi')\n  return\n  ```"
-        blocks = blocks_from_clipboard_text(text)
-        self.assertEqual(blocks[0].text, "first\nsecond")
-        self.assertEqual(blocks[1].text, "print('hi')\nreturn")
-        self.assertEqual(blocks[1].code_lang, "python")
-
-    def test_code_clipboard_roundtrip_preserves_blank_lines(self):
-        original = Block(0, "\nbody\n", code_lang="")
-        [parsed] = blocks_from_clipboard_text(
-            blocks_to_clipboard_text([original])
-        )
-        self.assertEqual(parsed.text, original.text)
 
     def test_plain_text_becomes_one_block(self):
         blocks = blocks_from_clipboard_text("plain\ntext")

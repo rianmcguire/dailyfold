@@ -11,10 +11,10 @@ gi.require_version("Gdk", "3.0")
 from gi.repository import Gdk, GLib, Gtk
 
 from blocks_view import BlocksView
+from block_markdown import MarkdownDocument
 from model import Block
 from search_dialog import SearchDialog, format_journal_date
 from storage import (
-    MarkdownDocument,
     journal_dates,
     journal_path,
     load_document,
@@ -249,4 +249,3 @@ class AppWindow(Gtk.Window):
 
     def _on_destroy(self, widget):
         Gtk.main_quit()
-

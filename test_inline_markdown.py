@@ -1,7 +1,7 @@
 import unittest
 from pathlib import Path
 
-from markdown import (
+from inline_markdown import (
     link_url_at_display_offset,
     parse_inline,
     runs_to_html,

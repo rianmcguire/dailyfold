@@ -1,4 +1,4 @@
-"""Inline markdown → Pango markup, with source-offset mapping for click-to-edit.
+"""Inline Markdown → rendered runs with source-offset click mapping.
 
 Block-level markdown is irrelevant here: documents are split into Block(level, text)
 at load time, so this module only sees the text inside one block. Supported:

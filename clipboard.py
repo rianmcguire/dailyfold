@@ -1,15 +1,13 @@
 """Portable clipboard formats for Dailyfold blocks."""
 
 import json
-import re
 from html import escape as html_escape
 
-from markdown import parse_inline, runs_to_html
+from block_markdown import parse_block_fragment, serialize_block_fragment
+from inline_markdown import parse_inline, runs_to_html
 from model import Block
 
 
-CLIPBOARD_BULLET_RE = re.compile(r"^([ \t]*)[-*+] (.*)$")
-CLIPBOARD_CODE_FENCE_RE = re.compile(r"^```([a-zA-Z0-9_+\-]*)$")
 CLIPBOARD_BLOCKS_TARGET = "application/x-dailyfold-blocks+json"
 CLIPBOARD_HTML_TARGET = "text/html"
 CLIPBOARD_BLOCKS_INFO = 1
@@ -59,20 +57,7 @@ def copy_blocks(blocks):
 
 def blocks_to_clipboard_text(blocks):
     """Serialize blocks as a portable Markdown list."""
-    lines = []
-    for block in copy_blocks(blocks):
-        bullet_indent = "  " * block.level
-        continuation_indent = "  " * (block.level + 1)
-        if block.code_lang is not None:
-            lines.append(f"{bullet_indent}- ```{block.code_lang}")
-            lines.extend(continuation_indent + line for line in block.text.split("\n"))
-            lines.append(f"{continuation_indent}```")
-            continue
-
-        text_lines = block.text.split("\n")
-        lines.append(f"{bullet_indent}- {text_lines[0]}")
-        lines.extend(continuation_indent + line for line in text_lines[1:])
-    return "\n".join(lines)
+    return serialize_block_fragment(blocks)
 
 
 def _inline_html(text):
@@ -178,72 +163,11 @@ def blocks_from_clipboard_payload(payload):
     return blocks
 
 
-def _indent_width(indent):
-    return sum(2 if char == "\t" else 1 for char in indent)
-
-
-def _strip_indent(text, width):
-    consumed = 0
-    i = 0
-    while i < len(text) and consumed < width and text[i] in " \t":
-        consumed += 2 if text[i] == "\t" else 1
-        i += 1
-    return text[i:]
-
-
 def blocks_from_clipboard_text(text):
     """Parse a Markdown list, or return non-list text as one block."""
     if text is None:
         return []
-    lines = text.split("\n")
-    blocks = []
-    indent_stack = []
-    block_indents = []
-    code_block = None
-    code_lines = []
-
-    for line in lines:
-        if code_block is not None:
-            body = _strip_indent(line, block_indents[-1] + 2)
-            if body == "```":
-                code_block.text = "\n".join(code_lines)
-                code_block = None
-                code_lines = []
-            else:
-                code_lines.append(body)
-            continue
-
-        match = CLIPBOARD_BULLET_RE.match(line)
-        if match is not None:
-            indent, body = match.groups()
-            width = _indent_width(indent)
-            if not indent_stack:
-                indent_stack.append(width)
-            elif width > indent_stack[-1]:
-                indent_stack.append(width)
-            else:
-                while indent_stack and width < indent_stack[-1]:
-                    indent_stack.pop()
-                if not indent_stack or width != indent_stack[-1]:
-                    indent_stack.append(width)
-            level = len(indent_stack) - 1
-            fence = CLIPBOARD_CODE_FENCE_RE.match(body)
-            block = Block(level, "", fence.group(1) if fence else None)
-            if fence is None:
-                block.text = body
-            blocks.append(block)
-            block_indents.append(width)
-            if fence is not None:
-                code_block = block
-                code_lines = []
-            continue
-
-        if blocks:
-            body = _strip_indent(line, block_indents[-1] + 2)
-            blocks[-1].text += "\n" + body
-
-    if not blocks:
+    blocks = parse_block_fragment(text)
+    if blocks is None:
         return [Block(0, text)] if text else []
-    if code_block is not None:
-        code_block.text = "\n".join(code_lines)
-    return copy_blocks(blocks)
+    return blocks
