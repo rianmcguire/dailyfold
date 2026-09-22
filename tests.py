@@ -753,7 +753,7 @@ class TestEnter(unittest.TestCase):
             shape(v),
             [(0, "a"), (1, ""), (1, "b"), (2, "c"), (2, "d")],
         )
-        self.assertEqual(moved, [(2, 0, 0)])
+        self.assertEqual(moved, [(1, 0, 0)])
 
     def test_nested_empty_block_outdents_instead_of_creating_a_block(self):
         v = view((0, "A"), (1, ""), (0, "B"))

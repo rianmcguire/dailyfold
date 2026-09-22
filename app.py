@@ -1823,7 +1823,8 @@ class BlocksView(Gtk.Overlay):
             self._suppress_text_snapshot = False
 
         self._end_structural(pre)
-        self._move_to_block(insert_idx, 0, 0)
+        focus_idx = b if not left and right else insert_idx
+        self._move_to_block(focus_idx, 0, 0)
         return True
 
     def _convert_to_code_block(self, lang):
