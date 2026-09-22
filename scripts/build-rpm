@@ -34,16 +34,26 @@ source_files=(
     README.md
     TODO.md
     app.py
+    blocks_view.py
+    clipboard.py
     example.md
     history.py
     markdown.py
     model.py
+    outline.py
     search.py
+    search_dialog.py
     storage.py
+    window.py
+    _app_test_support.py
+    test_blocks_view.py
+    test_clipboard.py
+    test_history.py
     test_markdown.py
+    test_outline.py
     test_search.py
+    test_search_dialog.py
     test_storage.py
-    tests.py
     packaging
 )
 
