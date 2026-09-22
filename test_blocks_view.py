@@ -148,6 +148,46 @@ class TestControlClickLink(unittest.TestCase):
         self.assertEqual(opened, [("https://example.com", 1234)])
 
 
+class TestFoldClick(unittest.TestCase):
+    def test_double_click_event_does_not_toggle_fold_a_third_time(self):
+        block = Block(0, "parent")
+        block_layout = SimpleNamespace(block=block)
+        toggle_fold = Mock(return_value=True)
+        canvas = SimpleNamespace(queue_draw=Mock())
+        view = SimpleNamespace(
+            canvas=canvas,
+            selection=None,
+            editing_block=None,
+            edit_view=None,
+            _block_at_y=lambda _y: block_layout,
+            _checkbox_hit=lambda _bl, _x, _y: False,
+            _task_label_hit=lambda _bl, _x, _y: False,
+            _bullet_hit=lambda _bl, _x, _y: True,
+            _block_index=lambda _block: 0,
+            _toggle_fold=toggle_fold,
+            _grab_canvas_focus=Mock(),
+        )
+
+        def click(event_type):
+            return BlocksView._on_click(
+                view,
+                canvas,
+                SimpleNamespace(
+                    state=0,
+                    button=1,
+                    type=event_type,
+                    x=20,
+                    y=40,
+                ),
+            )
+
+        self.assertTrue(click(Gdk.EventType.BUTTON_PRESS))
+        self.assertTrue(click(Gdk.EventType.BUTTON_PRESS))
+        self.assertTrue(click(Gdk.EventType.DOUBLE_BUTTON_PRESS))
+
+        self.assertEqual(toggle_fold.call_args_list, [call(0), call(0)])
+
+
 class TestEditActivationDoubleClick(unittest.TestCase):
     def setUp(self):
         self.block = Block(0, "alpha bravo")

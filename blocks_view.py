@@ -784,7 +784,17 @@ class BlocksView(Gtk.Overlay):
                 self._grab_canvas_focus()
                 return True
 
-        if target_bl is not None and self._bullet_hit(target_bl, event.x, event.y):
+        if (
+            target_bl is not None
+            and event.button == 1
+            and self._bullet_hit(target_bl, event.x, event.y)
+        ):
+            # GTK sends a normal press for the second click, followed by a
+            # synthesized double-click press. The normal press has already
+            # toggled the fold, so consume the synthesized event without
+            # toggling it a third time.
+            if event.type != Gdk.EventType.BUTTON_PRESS:
+                return True
             target_idx = self._block_index(target_bl.block)
             if self._toggle_fold(target_idx):
                 self.selection = None
