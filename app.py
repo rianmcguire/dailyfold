@@ -1338,6 +1338,9 @@ class BlocksView(Gtk.Overlay):
                 return self._handle_tab(shift=False)
             if event.keyval in (Gdk.KEY_Return, Gdk.KEY_KP_Enter):
                 return self._handle_enter()
+            if event.keyval == Gdk.KEY_Delete:
+                if self._maybe_handle_delete_empty():
+                    return True
             if event.keyval == Gdk.KEY_BackSpace:
                 if self._maybe_handle_backspace_join():
                     return True
@@ -1885,6 +1888,23 @@ class BlocksView(Gtk.Overlay):
 
         self._end_structural(pre)
         self._move_to_block(prev_idx, join_line, join_col)
+        return True
+
+    def _maybe_handle_delete_empty(self):
+        if self.editing_block is None or self.editing_block.text:
+            return False
+        b = self._block_index(self.editing_block)
+        if b + 1 >= len(self.blocks):
+            return False
+
+        pre = self._begin_structural()
+        end = self._subtree_end(b)
+        for i in range(b + 1, end):
+            self.blocks[i].level -= 1
+        del self.blocks[b]
+
+        self._end_structural(pre)
+        self._move_to_block(b, 0, 0)
         return True
 
     def _handle_right(self):

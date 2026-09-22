@@ -45,6 +45,7 @@ class _StubView:
         BlocksView._completes_edit_activation_click
     )
     _insert_pasted_blocks = BlocksView._insert_pasted_blocks
+    _maybe_handle_delete_empty = BlocksView._maybe_handle_delete_empty
     _paste_internal_blocks_from_editor = (
         BlocksView._paste_internal_blocks_from_editor
     )
@@ -794,6 +795,51 @@ class TestEnter(unittest.TestCase):
             [(0, "A"), (1, ""), (2, ""), (2, "child"), (0, "B")],
         )
         self.assertEqual(moved, [(2, 0, 0)])
+
+
+class TestDeleteEmpty(unittest.TestCase):
+    def prepare(self, v, editing_idx):
+        v.editing_block = v.blocks[editing_idx]
+        v._begin_structural = lambda: "before"
+        v._end_structural = lambda _pre: None
+        self.moved = []
+        v._move_to_block = lambda *position: self.moved.append(position)
+
+    def test_removes_empty_block_and_focuses_block_below(self):
+        v = view((0, "A"), (1, ""), (1, "B"))
+        self.prepare(v, 1)
+
+        self.assertTrue(v._maybe_handle_delete_empty())
+
+        self.assertEqual(shape(v), [(0, "A"), (1, "B")])
+        self.assertEqual(self.moved, [(1, 0, 0)])
+
+    def test_promotes_children_when_removing_empty_parent(self):
+        v = view(
+            (0, "A"),
+            (1, ""),
+            (2, "child"),
+            (3, "grandchild"),
+            (1, "B"),
+        )
+        self.prepare(v, 1)
+
+        self.assertTrue(v._maybe_handle_delete_empty())
+
+        self.assertEqual(
+            shape(v),
+            [(0, "A"), (1, "child"), (2, "grandchild"), (1, "B")],
+        )
+        self.assertEqual(self.moved, [(1, 0, 0)])
+
+    def test_leaves_last_empty_block_in_place(self):
+        v = view((0, "A"), (0, ""))
+        self.prepare(v, 1)
+
+        self.assertFalse(v._maybe_handle_delete_empty())
+
+        self.assertEqual(shape(v), [(0, "A"), (0, "")])
+        self.assertEqual(self.moved, [])
 
 
 class TestMoveRange(unittest.TestCase):
