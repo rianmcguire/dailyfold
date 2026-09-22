@@ -1,90 +1,101 @@
 import unittest
 from types import SimpleNamespace
-from unittest.mock import patch
+from unittest.mock import Mock, call, patch
 
 import gi
 
 gi.require_version("Gdk", "3.0")
 gi.require_version("Gtk", "3.0")
 gi.require_version("PangoCairo", "1.0")
-from gi.repository import Gdk, Gtk, Pango
+from gi.repository import Gdk, Pango
 
-from _app_test_support import (
-    StubAdjustment as _StubAdjustment,
-    StubFontWidget as _StubFontWidget,
-    StubScroller as _StubScroller,
-    StubView as _StubView,
-    shape,
-    view,
-)
 from blocks_view import (
+    BlocksView,
     _block_task_state,
     _task_markup,
+    append_area_hit,
+    completes_edit_activation_click,
     resolve_body_font,
+    task_label_hit,
     task_state,
     toggle_task_text,
 )
 from model import Block
+from outline import CursorPosition
 
 
 class TestCanvasFocus(unittest.TestCase):
     def test_preserves_scroll_position_when_focus_scrolls_canvas_to_top(self):
-        v = view((0, "block"))
-        adjustment = _StubAdjustment(420)
-        scroller = _StubScroller(adjustment)
-        v.get_ancestor = lambda widget_type: scroller
-        v.canvas.focus_callback = lambda: adjustment.set_value(0)
+        adjustment = Mock()
+        adjustment.get_value.return_value = 420
+        canvas = Mock()
+        canvas.grab_focus.side_effect = lambda: adjustment.set_value(0)
+        scroller = SimpleNamespace(get_vadjustment=lambda: adjustment)
+        view = SimpleNamespace(
+            canvas=canvas,
+            get_ancestor=lambda _widget_type: scroller,
+        )
 
-        v._grab_canvas_focus()
+        BlocksView._grab_canvas_focus(view)
 
-        self.assertEqual(adjustment.get_value(), 420)
+        self.assertEqual(
+            adjustment.set_value.call_args_list,
+            [call(0), call(420)],
+        )
 
     def test_grabs_focus_without_a_scroller(self):
-        v = view((0, "block"))
-        focused = []
-        v.get_ancestor = lambda widget_type: None
-        v.canvas.focus_callback = lambda: focused.append(True)
+        canvas = Mock()
+        view = SimpleNamespace(
+            canvas=canvas,
+            get_ancestor=lambda _widget_type: None,
+        )
 
-        v._grab_canvas_focus()
+        BlocksView._grab_canvas_focus(view)
 
-        self.assertEqual(focused, [True])
+        canvas.grab_focus.assert_called_once_with()
 
 
 class TestAppendAreaHit(unittest.TestCase):
     def setUp(self):
-        self.v = view((0, "last"))
-        self.v.layouts = [SimpleNamespace(y=50, height=24)]
-        self.v.header_layout = SimpleNamespace(y=10, height=20)
-        self.v._body_row_height = lambda: 24
+        self.blocks = [Block(0, "last")]
+        self.layouts = [SimpleNamespace(y=50, height=24)]
+        self.header_layout = SimpleNamespace(y=10, height=20)
+
+    def hit(self, y):
+        return append_area_hit(
+            self.blocks,
+            self.layouts,
+            self.header_layout,
+            24,
+            y,
+        )
 
     def test_covers_one_row_below_last_item(self):
-        self.assertTrue(self.v._append_area_hit(74))
-        self.assertTrue(self.v._append_area_hit(97.999))
+        self.assertTrue(self.hit(74))
+        self.assertTrue(self.hit(97.999))
 
     def test_excludes_items_and_space_beyond_one_row(self):
-        self.assertFalse(self.v._append_area_hit(73.999))
-        self.assertFalse(self.v._append_area_hit(98))
+        self.assertFalse(self.hit(73.999))
+        self.assertFalse(self.hit(98))
 
     def test_disabled_when_document_ends_in_empty_top_level_block(self):
-        self.v.blocks[-1].text = ""
-        self.assertFalse(self.v._append_area_hit(74))
+        self.blocks[-1].text = ""
+        self.assertFalse(self.hit(74))
 
     def test_enabled_when_document_ends_in_empty_indented_block(self):
-        self.v.blocks[-1].level = 1
-        self.v.blocks[-1].text = ""
-        self.assertTrue(self.v._append_area_hit(74))
+        self.blocks[-1].level = 1
+        self.blocks[-1].text = ""
+        self.assertTrue(self.hit(74))
 
     def test_starts_below_header_when_document_has_no_items(self):
-        self.v.blocks = []
-        self.v.layouts = []
-        self.assertFalse(self.v._append_area_hit(37.999))
-        self.assertTrue(self.v._append_area_hit(38))
+        self.blocks = []
+        self.layouts = []
+        self.assertFalse(self.hit(37.999))
+        self.assertTrue(self.hit(38))
 
 
 class TestTaskLabelHit(unittest.TestCase):
     def setUp(self):
-        self.v = view((0, "TODO task"))
-        self.v._body_row_height = lambda: 24
         self.bl = SimpleNamespace(
             text_x=70,
             y=50,
@@ -92,32 +103,35 @@ class TestTaskLabelHit(unittest.TestCase):
         )
 
     def test_hits_colored_label_on_first_row(self):
-        self.assertTrue(self.v._task_label_hit(self.bl, 70, 50))
-        self.assertTrue(self.v._task_label_hit(self.bl, 111.999, 73.999))
+        self.assertTrue(task_label_hit(self.bl, 24, 70, 50))
+        self.assertTrue(task_label_hit(self.bl, 24, 111.999, 73.999))
 
     def test_excludes_body_text_and_other_rows(self):
-        self.assertFalse(self.v._task_label_hit(self.bl, 112, 60))
-        self.assertFalse(self.v._task_label_hit(self.bl, 80, 74))
+        self.assertFalse(task_label_hit(self.bl, 24, 112, 60))
+        self.assertFalse(task_label_hit(self.bl, 24, 80, 74))
 
     def test_non_task_layout_has_no_label_target(self):
         self.bl.task_label_width = None
-        self.assertFalse(self.v._task_label_hit(self.bl, 80, 60))
+        self.assertFalse(task_label_hit(self.bl, 24, 80, 60))
 
 
 class TestControlClickLink(unittest.TestCase):
     def test_opens_link_without_entering_editor(self):
-        v = view((0, "[docs](https://example.com)"))
-        bl = SimpleNamespace(block=v.blocks[0])
-        v._block_at_y = lambda y: bl
-        v._link_url_from_click = (
-            lambda target, x, y: "https://example.com"
-        )
+        block = Block(0, "[docs](https://example.com)")
+        block_layout = SimpleNamespace(block=block)
         finished = []
         opened = []
-        v._finish_editing = lambda: finished.append(True)
-        v._open_link = lambda url, timestamp: opened.append((url, timestamp))
-        v.edit_view = None
-        v.selection = (0, 0)
+        canvas = Mock()
+        view = SimpleNamespace(
+            canvas=canvas,
+            selection=(0, 0),
+            _block_at_y=lambda _y: block_layout,
+            _link_url_from_click=(
+                lambda _target, _x, _y: "https://example.com"
+            ),
+            _finish_editing=lambda: finished.append(True),
+            _open_link=lambda url, timestamp: opened.append((url, timestamp)),
+        )
         event = SimpleNamespace(
             state=Gdk.ModifierType.CONTROL_MASK,
             button=1,
@@ -127,25 +141,23 @@ class TestControlClickLink(unittest.TestCase):
             time=1234,
         )
 
-        self.assertTrue(v._on_click(v.canvas, event))
+        self.assertTrue(BlocksView._on_click(view, canvas, event))
 
         self.assertEqual(finished, [True])
-        self.assertIsNone(v.selection)
+        self.assertIsNone(view.selection)
         self.assertEqual(opened, [("https://example.com", 1234)])
 
 
 class TestEditActivationDoubleClick(unittest.TestCase):
     def setUp(self):
-        self.v = view((0, "alpha bravo"))
-        self.block = self.v.blocks[0]
-        self.v._edit_activation_click = (
+        self.block = Block(0, "alpha bravo")
+        self.first_click = (
             1000,
             50.0,
             80.0,
             self.block,
             3,
         )
-        self.v._double_click_thresholds = lambda: (250, 5)
 
     def event(self, **changes):
         values = {
@@ -159,195 +171,118 @@ class TestEditActivationDoubleClick(unittest.TestCase):
 
     def test_accepts_second_click_within_gtk_thresholds(self):
         self.assertTrue(
-            self.v._completes_edit_activation_click(
-                self.event(), self.block
+            completes_edit_activation_click(
+                self.first_click, self.event(), self.block, 250, 5
             )
         )
 
     def test_rejects_late_or_distant_click(self):
         self.assertFalse(
-            self.v._completes_edit_activation_click(
-                self.event(time=1251), self.block
+            completes_edit_activation_click(
+                self.first_click,
+                self.event(time=1251),
+                self.block,
+                250,
+                5,
             )
         )
         self.assertFalse(
-            self.v._completes_edit_activation_click(
-                self.event(x_root=56.0), self.block
+            completes_edit_activation_click(
+                self.first_click,
+                self.event(x_root=56.0),
+                self.block,
+                250,
+                5,
             )
         )
 
     def test_rejects_another_button_or_block(self):
         self.assertFalse(
-            self.v._completes_edit_activation_click(
-                self.event(button=3), self.block
+            completes_edit_activation_click(
+                self.first_click,
+                self.event(button=3),
+                self.block,
+                250,
+                5,
             )
         )
         self.assertFalse(
-            self.v._completes_edit_activation_click(
-                self.event(), Block(0, "different")
+            completes_edit_activation_click(
+                self.first_click,
+                self.event(),
+                Block(0, "different"),
+                250,
+                5,
             )
         )
 
 
 class TestEnter(unittest.TestCase):
-    def test_split_parent_before_text_keeps_right_side_with_its_children(self):
-        v = view((0, "a"), (1, "b"), (2, "c"), (2, "d"))
-        v.editing_block = v.blocks[1]
-        buf = SimpleNamespace(
+    def test_moves_to_cursor_returned_by_split(self):
+        block = Block(0, "text")
+        buffer = SimpleNamespace(
             get_insert=lambda: None,
             get_iter_at_mark=lambda _mark: SimpleNamespace(
                 get_offset=lambda: 0
             ),
-            set_text=lambda text: setattr(v.blocks[1], "text", text),
+            set_text=Mock(),
         )
-        v.edit_view = SimpleNamespace(get_buffer=lambda: buf)
-        v._begin_structural = lambda: "before"
-        v._end_structural = lambda _pre: None
         moved = []
-        v._move_to_block = lambda *position: moved.append(position)
-
-        self.assertTrue(v._handle_enter())
-
-        self.assertEqual(
-            shape(v),
-            [(0, "a"), (1, ""), (1, "b"), (2, "c"), (2, "d")],
+        view = SimpleNamespace(
+            blocks=[block],
+            editing_block=block,
+            edit_view=SimpleNamespace(get_buffer=lambda: buffer),
+            _block_index=lambda _block: 0,
+            _subtree_end=lambda _index: 1,
+            _begin_structural=lambda: "before",
+            _end_structural=Mock(),
+            _move_to_cursor=moved.append,
+            _suppress_text_snapshot=False,
         )
-        self.assertEqual(moved, [(1, 0, 0)])
+        cursor = CursorPosition(0)
 
-    def test_nested_empty_block_outdents_instead_of_creating_a_block(self):
-        v = view((0, "A"), (1, ""), (0, "B"))
-        v.editing_block = v.blocks[1]
-        v._begin_structural = lambda: "before"
-        committed = []
-        v._end_structural = committed.append
-        v.queue_resize = lambda: None
+        with patch("blocks_view.split_block", return_value=cursor) as split:
+            self.assertTrue(BlocksView._handle_enter(view))
 
-        self.assertTrue(v._handle_enter())
-
-        self.assertEqual(
-            shape(v),
-            [(0, "A"), (0, ""), (0, "B")],
-        )
-        self.assertEqual(committed, ["before"])
-
-    def test_blank_parent_keeps_normal_enter_behavior(self):
-        v = view((0, "A"), (1, ""), (2, "child"), (0, "B"))
-        v.editing_block = v.blocks[1]
-        buf = SimpleNamespace(
-            get_insert=lambda: None,
-            get_iter_at_mark=lambda _mark: SimpleNamespace(
-                get_offset=lambda: 0
-            ),
-            set_text=lambda _text: None,
-        )
-        v.edit_view = SimpleNamespace(get_buffer=lambda: buf)
-        v._begin_structural = lambda: "before"
-        v._end_structural = lambda _pre: None
-        moved = []
-        v._move_to_block = lambda *position: moved.append(position)
-
-        self.assertTrue(v._handle_enter())
-
-        self.assertEqual(
-            shape(v),
-            [(0, "A"), (1, ""), (2, ""), (2, "child"), (0, "B")],
-        )
-        self.assertEqual(moved, [(2, 0, 0)])
+        split.assert_called_once_with(view.blocks, 0, 0)
+        view._end_structural.assert_called_once_with("before")
+        self.assertEqual(moved, [cursor])
 
 
 class TestDeleteEmpty(unittest.TestCase):
-    def prepare(self, v, editing_idx):
-        v.editing_block = v.blocks[editing_idx]
-        v._begin_structural = lambda: "before"
-        v._end_structural = lambda _pre: None
-        self.moved = []
-        v._move_to_block = lambda *position: self.moved.append(position)
-
-    def test_removes_empty_block_and_focuses_block_below(self):
-        v = view((0, "A"), (1, ""), (1, "B"))
-        self.prepare(v, 1)
-
-        self.assertTrue(v._maybe_handle_delete_empty())
-
-        self.assertEqual(shape(v), [(0, "A"), (1, "B")])
-        self.assertEqual(self.moved, [(1, 0, 0)])
-
-    def test_promotes_children_when_removing_empty_parent(self):
-        v = view(
-            (0, "A"),
-            (1, ""),
-            (2, "child"),
-            (3, "grandchild"),
-            (1, "B"),
+    def test_moves_to_cursor_returned_by_delete(self):
+        blocks = [Block(0, ""), Block(0, "next")]
+        moved = []
+        view = SimpleNamespace(
+            blocks=blocks,
+            editing_block=blocks[0],
+            _block_index=lambda _block: 0,
+            _begin_structural=lambda: "before",
+            _end_structural=Mock(),
+            _move_to_cursor=moved.append,
         )
-        self.prepare(v, 1)
+        cursor = CursorPosition(0)
 
-        self.assertTrue(v._maybe_handle_delete_empty())
+        with patch(
+            "blocks_view.delete_empty_forward", return_value=cursor
+        ) as delete:
+            self.assertTrue(BlocksView._maybe_handle_delete_empty(view))
 
-        self.assertEqual(
-            shape(v),
-            [(0, "A"), (1, "child"), (2, "grandchild"), (1, "B")],
-        )
-        self.assertEqual(self.moved, [(1, 0, 0)])
-
-    def test_leaves_last_empty_block_in_place(self):
-        v = view((0, "A"), (0, ""))
-        self.prepare(v, 1)
-
-        self.assertFalse(v._maybe_handle_delete_empty())
-
-        self.assertEqual(shape(v), [(0, "A"), (0, "")])
-        self.assertEqual(self.moved, [])
-
-
-class TestCodeBlocks(unittest.TestCase):
-    def test_default_code_lang_is_none(self):
-        b = Block(0, "hi")
-        self.assertIsNone(b.code_lang)
-
-    def test_code_block_survives_structural_snapshot_copy(self):
-        v = view((0, "outer"))
-        v.blocks.append(Block(0, "def foo():\n    pass", code_lang="python"))
-        copies = [Block(b.level, b.text, b.code_lang) for b in v.blocks]
-        v.blocks[1].text = "MUTATED"
-        v.blocks[1].code_lang = "rust"
-        self.assertEqual(copies[1].text, "def foo():\n    pass")
-        self.assertEqual(copies[1].code_lang, "python")
-
-    def test_history_deepcopy_preserves_code_lang(self):
-        from copy import deepcopy
-        blocks = [Block(0, "code body", code_lang="python")]
-        snap = deepcopy(blocks)
-        blocks[0].code_lang = "rust"
-        self.assertEqual(snap[0].code_lang, "python")
-
-    def test_indent_works_on_code_block(self):
-        v = view((0, "parent"))
-        v.blocks.append(Block(0, "code", code_lang=""))
-        ok = v._shift_levels(1, 2, shift=False)
-        self.assertTrue(ok)
-        self.assertEqual(v.blocks[1].level, 1)
-        self.assertEqual(v.blocks[1].code_lang, "")
-
-    def test_move_range_keeps_code_lang(self):
-        v = _StubView()
-        v.blocks = [
-            Block(0, "a"),
-            Block(0, "code", code_lang="python"),
-        ]
-        v.selection = None
-        v._move_range(1, 2, direction=-1)
-        self.assertEqual(v.blocks[0].text, "code")
-        self.assertEqual(v.blocks[0].code_lang, "python")
-        self.assertEqual(v.blocks[1].text, "a")
-        self.assertIsNone(v.blocks[1].code_lang)
+        delete.assert_called_once_with(blocks, 0)
+        view._end_structural.assert_called_once_with("before")
+        self.assertEqual(moved, [cursor])
 
 
 class TestContentFont(unittest.TestCase):
     def test_body_font_is_ten_percent_larger_than_widget_default(self):
         default_font = Pango.FontDescription("Sans 10")
+        widget = SimpleNamespace(
+            get_pango_context=lambda: SimpleNamespace(
+                get_font_description=lambda: default_font
+            )
+        )
 
-        body_font = resolve_body_font(_StubFontWidget(default_font))
+        body_font = resolve_body_font(widget)
 
         self.assertEqual(body_font.get_size(), 11 * Pango.SCALE)
         self.assertEqual(default_font.get_size(), 10 * Pango.SCALE)

@@ -1,8 +1,201 @@
 import unittest
 
-from _app_test_support import levels, shape, view
 from model import Block
-from outline import visible_block_indices
+from outline import (
+    CursorPosition,
+    delete_empty_forward,
+    delete_range,
+    expand_selection,
+    insert_blocks,
+    join_with_previous,
+    move_range,
+    parent_index,
+    selection_indices,
+    shift_levels,
+    split_block,
+    subtree_end,
+    visible_block_indices,
+    visible_neighbor,
+)
+
+
+class OutlineHarness:
+    def __init__(self, blocks):
+        self.blocks = blocks
+        self.selection = None
+
+    def _subtree_end(self, block_idx):
+        return subtree_end(self.blocks, block_idx)
+
+    def _visible_neighbor(self, block_idx, direction):
+        return visible_neighbor(self.blocks, block_idx, direction)
+
+    def _selection_indices(self):
+        return selection_indices(self.blocks, self.selection)
+
+    def _parent_index(self, block_idx):
+        return parent_index(self.blocks, block_idx)
+
+    def _expand_block_selection(self):
+        expanded = expand_selection(self.blocks, self.selection)
+        if expanded is None:
+            return False
+        self.selection = expanded
+        return True
+
+    def _shift_levels(self, start, end, shift):
+        return shift_levels(self.blocks, start, end, shift)
+
+    def _move_range(self, start, end, direction):
+        return move_range(self.blocks, start, end, direction)
+
+
+def view(*levels_and_texts):
+    return OutlineHarness(
+        [Block(level, text) for level, text in levels_and_texts]
+    )
+
+
+def levels(view_under_test):
+    return [block.level for block in view_under_test.blocks]
+
+
+def shape(view_under_test):
+    return [
+        (block.level, block.text) for block in view_under_test.blocks
+    ]
+
+
+def block_shape(blocks):
+    return [
+        (
+            block.level,
+            block.text,
+            block.code_lang,
+            block.collapsed,
+            block.properties,
+        )
+        for block in blocks
+    ]
+
+
+class TestStructuralEditing(unittest.TestCase):
+    def test_split_before_text_keeps_existing_children_with_right_block(self):
+        blocks = [
+            Block(0, "a"),
+            Block(1, "b"),
+            Block(2, "c"),
+            Block(2, "d"),
+        ]
+
+        cursor = split_block(blocks, 1, 0)
+
+        self.assertEqual(
+            [(block.level, block.text) for block in blocks],
+            [(0, "a"), (1, ""), (1, "b"), (2, "c"), (2, "d")],
+        )
+        self.assertEqual(cursor, CursorPosition(1))
+
+    def test_split_at_end_of_parent_creates_first_child(self):
+        blocks = [Block(0, "parent"), Block(1, "child")]
+
+        cursor = split_block(blocks, 0, len("parent"))
+
+        self.assertEqual(
+            [(block.level, block.text) for block in blocks],
+            [(0, "parent"), (1, ""), (1, "child")],
+        )
+        self.assertEqual(cursor, CursorPosition(1))
+
+    def test_split_code_block_preserves_language_on_right_side(self):
+        blocks = [Block(0, "left\nright", code_lang="python")]
+
+        cursor = split_block(blocks, 0, 5)
+
+        self.assertEqual(
+            [(block.text, block.code_lang) for block in blocks],
+            [("left\n", "python"), ("right", "python")],
+        )
+        self.assertEqual(cursor, CursorPosition(1))
+
+    def test_join_rebases_descendants_and_returns_join_position(self):
+        blocks = [
+            Block(0, "previous"),
+            Block(1, "current"),
+            Block(2, "child"),
+        ]
+
+        cursor = join_with_previous(blocks, 1, 0)
+
+        self.assertEqual(
+            [(block.level, block.text) for block in blocks],
+            [(0, "previouscurrent"), (1, "child")],
+        )
+        self.assertEqual(cursor, CursorPosition(0, 0, len("previous")))
+
+    def test_delete_empty_forward_promotes_descendants(self):
+        blocks = [
+            Block(0, "parent"),
+            Block(1, ""),
+            Block(2, "child"),
+            Block(1, "sibling"),
+        ]
+
+        cursor = delete_empty_forward(blocks, 1)
+
+        self.assertEqual(
+            [(block.level, block.text) for block in blocks],
+            [(0, "parent"), (1, "child"), (1, "sibling")],
+        )
+        self.assertEqual(cursor, CursorPosition(1))
+
+    def test_delete_range_focuses_end_of_previous_block(self):
+        blocks = [Block(0, "first\nline"), Block(0, "second")]
+
+        cursor = delete_range(blocks, 1, 2)
+
+        self.assertEqual(cursor, CursorPosition(0, 1, len("line")))
+
+    def test_insert_blocks_rebases_and_copies_metadata(self):
+        blocks = [Block(0, "parent")]
+        pasted = [
+            Block(0, "pasted", collapsed=True, properties=("id:: one",)),
+            Block(1, "child", code_lang="python"),
+        ]
+
+        selection = insert_blocks(blocks, pasted, 1, 1)
+
+        self.assertEqual(selection, (1, 2))
+        self.assertEqual(
+            block_shape(blocks),
+            [
+                (0, "parent", None, False, ()),
+                (1, "pasted", None, True, ("id:: one",)),
+                (2, "child", "python", False, ()),
+            ],
+        )
+        self.assertIsNot(blocks[1], pasted[0])
+
+    def test_indent_preserves_code_language(self):
+        blocks = [Block(0, "parent"), Block(0, "code", code_lang="")]
+
+        self.assertTrue(shift_levels(blocks, 1, 2, outdent=False))
+
+        self.assertEqual(blocks[1].level, 1)
+        self.assertEqual(blocks[1].code_lang, "")
+
+    def test_move_preserves_code_language(self):
+        blocks = [
+            Block(0, "a"),
+            Block(0, "code", code_lang="python"),
+        ]
+
+        self.assertEqual(move_range(blocks, 1, 2, direction=-1), (0, 1))
+
+        self.assertEqual(blocks[0].text, "code")
+        self.assertEqual(blocks[0].code_lang, "python")
+        self.assertEqual(blocks[1].text, "a")
+        self.assertIsNone(blocks[1].code_lang)
 
 
 class TestSubtreeEnd(unittest.TestCase):

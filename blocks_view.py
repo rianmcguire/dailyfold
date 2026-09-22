@@ -36,12 +36,19 @@ from markdown import (
 )
 from model import Block
 from outline import (
+    delete_empty_forward,
+    delete_range,
+    expand_selection,
+    insert_blocks,
+    join_with_previous,
     move_range,
     parent_index,
     selection_indices,
     shift_levels,
+    split_block,
     subtree_end,
     visible_block_indices,
+    visible_neighbor,
 )
 
 
@@ -205,6 +212,68 @@ def _apply_code_textview_style(tv, on):
     else:
         ctx.remove_class("code-block")
         ctx.remove_provider(_code_css_provider())
+
+
+def append_area_hit(blocks, layouts, header_layout, body_row_height, y):
+    """Return whether *y* is in the row used to append a root block."""
+    if blocks and blocks[-1].level == 0 and not blocks[-1].text:
+        return False
+    if layouts:
+        top = layouts[-1].y + layouts[-1].height
+    elif header_layout is not None:
+        top = header_layout.y + header_layout.height + HEADER_GAP
+    else:
+        return False
+    return top <= y < top + body_row_height
+
+
+def task_label_hit(block_layout, body_row_height, x, y):
+    """Return whether a point hits the task badge on a block's first row."""
+    if block_layout.task_label_width is None:
+        return False
+    return (
+        block_layout.text_x
+        <= x
+        < block_layout.text_x + block_layout.task_label_width
+        and block_layout.y <= y < block_layout.y + body_row_height
+    )
+
+
+def completes_edit_activation_click(
+    first_click,
+    event,
+    block,
+    max_time,
+    max_distance,
+):
+    """Return whether *event* completes the remembered activation click."""
+    if first_click is None or event.button != 1 or first_click[3] is not block:
+        return False
+
+    elapsed = (int(event.time) - first_click[0]) & 0xFFFFFFFF
+    return (
+        elapsed <= max_time
+        and abs(float(event.x_root) - first_click[1]) <= max_distance
+        and abs(float(event.y_root) - first_click[2]) <= max_distance
+    )
+
+
+def publish_clipboard(canvas, targets, plain_text):
+    """Publish clipboard targets after claiming ownership of the selection."""
+    if Gtk.selection_owner_set(
+        canvas, Gdk.SELECTION_CLIPBOARD, Gdk.CURRENT_TIME
+    ):
+        # On Wayland, publishing targets creates the compositor-facing data
+        # source. Do it only after the realized canvas owns the selection so
+        # ownership loss can cancel that source normally.
+        Gtk.selection_clear_targets(canvas, Gdk.SELECTION_CLIPBOARD)
+        Gtk.selection_add_targets(
+            canvas,
+            Gdk.SELECTION_CLIPBOARD,
+            targets,
+        )
+    else:
+        Gtk.Clipboard.get(Gdk.SELECTION_CLIPBOARD).set_text(plain_text, -1)
 
 
 def compute_layouts(pango_context, width, body_font, header_text, blocks):
@@ -644,23 +713,13 @@ class BlocksView(Gtk.Overlay):
         return extents.height + TEXT_PAD * 2
 
     def _append_area_hit(self, y):
-        if (
-            self.blocks
-            and self.blocks[-1].level == 0
-            and not self.blocks[-1].text
-        ):
-            return False
-        if self.layouts:
-            top = self.layouts[-1].y + self.layouts[-1].height
-        elif self.header_layout is not None:
-            top = (
-                self.header_layout.y
-                + self.header_layout.height
-                + HEADER_GAP
-            )
-        else:
-            return False
-        return top <= y < top + self._body_row_height()
+        return append_area_hit(
+            self.blocks,
+            self.layouts,
+            self.header_layout,
+            self._body_row_height(),
+            y,
+        )
 
     def _on_click(self, widget, event):
         state = event.state & Gtk.accelerator_get_default_mod_mask()
@@ -771,16 +830,20 @@ class BlocksView(Gtk.Overlay):
             self._edit_activation_click = None
 
     def _completes_edit_activation_click(self, event, block):
-        first = self._edit_activation_click
-        if first is None or event.button != 1 or first[3] is not block:
+        first_click = self._edit_activation_click
+        if (
+            first_click is None
+            or event.button != 1
+            or first_click[3] is not block
+        ):
             return False
-
         max_time, max_distance = self._double_click_thresholds()
-        elapsed = (int(event.time) - first[0]) & 0xFFFFFFFF
-        return (
-            elapsed <= max_time
-            and abs(float(event.x_root) - first[1]) <= max_distance
-            and abs(float(event.y_root) - first[2]) <= max_distance
+        return completes_edit_activation_click(
+            first_click,
+            event,
+            block,
+            max_time,
+            max_distance,
         )
 
     def _double_click_thresholds(self):
@@ -819,12 +882,7 @@ class BlocksView(Gtk.Overlay):
         )
 
     def _task_label_hit(self, bl, x, y):
-        if bl.task_label_width is None:
-            return False
-        return (
-            bl.text_x <= x < bl.text_x + bl.task_label_width
-            and bl.y <= y < bl.y + self._body_row_height()
-        )
+        return task_label_hit(bl, self._body_row_height(), x, y)
 
     def _bullet_hit(self, bl, x, y):
         if not bl.has_children:
@@ -1311,16 +1369,15 @@ class BlocksView(Gtk.Overlay):
                 self.desired_col = desired_col
                 return
 
+    def _move_to_cursor(self, cursor):
+        self._move_to_block(
+            cursor.block_index,
+            cursor.line,
+            cursor.column,
+        )
+
     def _visible_neighbor(self, block_idx, direction):
-        visible = visible_block_indices(self.blocks)
-        try:
-            pos = visible.index(block_idx)
-        except ValueError:
-            return None
-        target_pos = pos + direction
-        if 0 <= target_pos < len(visible):
-            return visible[target_pos]
-        return None
+        return visible_neighbor(self.blocks, block_idx, direction)
 
     def _handle_up(self):
         b, l, c = self._current_position()
@@ -1456,29 +1513,16 @@ class BlocksView(Gtk.Overlay):
 
         pre = self._begin_structural()
 
-        left = block.text[:offset]
-        right = block.text[offset:]
-
-        if has_children and block.collapsed:
-            block.collapsed = False
-        # Splitting before existing text creates a sibling, leaving the
-        # following subtree attached to that right-hand block.  Only Enter at
-        # the end of a parent creates a new first child.
-        new_level = block.level + 1 if has_children and not right else block.level
-        insert_idx = b + 1
-        new_lang = block.code_lang if is_code and offset < len(block.text) else None
-        new_block = Block(level=new_level, text=right, code_lang=new_lang)
-        self.blocks.insert(insert_idx, new_block)
+        cursor = split_block(self.blocks, b, offset)
 
         self._suppress_text_snapshot = True
         try:
-            buf.set_text(left)
+            buf.set_text(block.text)
         finally:
             self._suppress_text_snapshot = False
 
         self._end_structural(pre)
-        focus_idx = b if not left and right else insert_idx
-        self._move_to_block(focus_idx, 0, 0)
+        self._move_to_cursor(cursor)
         return True
 
     def _convert_to_code_block(self, lang):
@@ -1522,23 +1566,10 @@ class BlocksView(Gtk.Overlay):
             return False
 
         pre = self._begin_structural()
-        prev = self.blocks[prev_idx]
-
-        block = self.editing_block
-        prev_lines = prev.text.split("\n")
-        join_line = len(prev_lines) - 1
-        join_col = len(prev_lines[-1])
-
-        end = self._subtree_end(b)
-        delta = prev.level - block.level
-        for i in range(b + 1, end):
-            self.blocks[i].level += delta
-
-        prev.text = prev.text + block.text
-        del self.blocks[b]
+        cursor = join_with_previous(self.blocks, b, prev_idx)
 
         self._end_structural(pre)
-        self._move_to_block(prev_idx, join_line, join_col)
+        self._move_to_cursor(cursor)
         return True
 
     def _maybe_handle_delete_empty(self):
@@ -1549,13 +1580,10 @@ class BlocksView(Gtk.Overlay):
             return False
 
         pre = self._begin_structural()
-        end = self._subtree_end(b)
-        for i in range(b + 1, end):
-            self.blocks[i].level -= 1
-        del self.blocks[b]
+        cursor = delete_empty_forward(self.blocks, b)
 
         self._end_structural(pre)
-        self._move_to_block(b, 0, 0)
+        self._move_to_cursor(cursor)
         return True
 
     def _handle_right(self):
@@ -1699,22 +1727,11 @@ class BlocksView(Gtk.Overlay):
         self._clipboard_plain_text = blocks_to_clipboard_text(copied)
         self._clipboard_html = blocks_to_clipboard_html(copied)
         self._clipboard_payload = blocks_to_clipboard_payload(copied)
-        if Gtk.selection_owner_set(
-            self.canvas, Gdk.SELECTION_CLIPBOARD, Gdk.CURRENT_TIME
-        ):
-            # On Wayland, publishing targets creates the compositor-facing
-            # data source. Do it only after the realized canvas owns the
-            # selection so ownership loss can cancel that source normally.
-            Gtk.selection_clear_targets(self.canvas, Gdk.SELECTION_CLIPBOARD)
-            Gtk.selection_add_targets(
-                self.canvas,
-                Gdk.SELECTION_CLIPBOARD,
-                self._clipboard_targets,
-            )
-        else:
-            Gtk.Clipboard.get(Gdk.SELECTION_CLIPBOARD).set_text(
-                self._clipboard_plain_text, -1
-            )
+        publish_clipboard(
+            self.canvas,
+            self._clipboard_targets,
+            self._clipboard_plain_text,
+        )
         if cut:
             self._handle_selection_delete()
         return True
@@ -1752,18 +1769,12 @@ class BlocksView(Gtk.Overlay):
         return pasted
 
     def _insert_pasted_blocks(self, pasted, insert_idx, destination_level, pre):
-        inserted = [
-            Block(
-                block.level + destination_level,
-                block.text,
-                block.code_lang,
-                block.collapsed,
-                block.properties,
-            )
-            for block in pasted
-        ]
-        self.blocks[insert_idx:insert_idx] = inserted
-        self.selection = (insert_idx, insert_idx + len(inserted) - 1)
+        self.selection = insert_blocks(
+            self.blocks,
+            pasted,
+            insert_idx,
+            destination_level,
+        )
         self._end_structural(pre)
         self._grab_canvas_focus()
         self.canvas.queue_draw()
@@ -1814,19 +1825,10 @@ class BlocksView(Gtk.Overlay):
         )
 
     def _expand_block_selection(self):
-        if self.selection is None or not self.blocks:
+        expanded = expand_selection(self.blocks, self.selection)
+        if expanded is None:
             return False
-
-        indices = self._selection_indices()
-        start, end = indices[0], indices[-1] + 1
-        parent = self._parent_index(start)
-        while parent is not None and self._subtree_end(parent) < end:
-            parent = self._parent_index(parent)
-
-        if parent is not None:
-            self.selection = (parent, parent)
-        else:
-            self.selection = (0, len(self.blocks) - 1)
+        self.selection = expanded
         self.canvas.queue_draw()
         return True
 
@@ -1847,19 +1849,13 @@ class BlocksView(Gtk.Overlay):
         indices = self._selection_indices()
         start, end = indices[0], indices[-1] + 1
         pre = self._begin_structural()
-        del self.blocks[start:end]
+        cursor = delete_range(self.blocks, start, end)
         self.selection = None
         self._end_structural(pre)
-        if not self.blocks:
+        if cursor is None:
             self.canvas.queue_draw()
             return True
-        if start > 0:
-            target_idx = start - 1
-            target = self.blocks[target_idx]
-            lines = target.text.split("\n")
-            self._move_to_block(target_idx, len(lines) - 1, len(lines[-1]))
-        else:
-            self._move_to_block(0, 0, 0)
+        self._move_to_cursor(cursor)
         return True
 
     def _handle_move_selection(self, direction):

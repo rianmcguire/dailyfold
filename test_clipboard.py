@@ -1,12 +1,13 @@
 import unittest
-from unittest.mock import patch
+from types import SimpleNamespace
+from unittest.mock import Mock, patch
 
 import gi
 
 gi.require_version("Gtk", "3.0")
 from gi.repository import Gtk
 
-from _app_test_support import shape, view
+from blocks_view import BlocksView, publish_clipboard
 from clipboard import (
     blocks_from_clipboard_payload,
     blocks_from_clipboard_text,
@@ -17,6 +18,7 @@ from clipboard import (
     link_from_paste,
 )
 from model import Block
+from outline import subtree_end
 
 
 class TestLinkFromPaste(unittest.TestCase):
@@ -193,9 +195,8 @@ class TestClipboardFormat(unittest.TestCase):
 
 class TestClipboardOwnership(unittest.TestCase):
     def test_claims_ownership_before_publishing_targets(self):
-        v = view((0, "copied"))
-        v.selection = (0, 0)
-        v._clipboard_targets = [object()]
+        canvas = object()
+        targets = [object()]
         calls = []
 
         with (
@@ -215,70 +216,57 @@ class TestClipboardOwnership(unittest.TestCase):
                 side_effect=lambda *args: calls.append("targets"),
             ),
         ):
-            self.assertTrue(v._copy_block_selection(cut=False))
+            publish_clipboard(canvas, targets, "copied")
 
         self.assertEqual(calls, ["owner", "clear", "targets"])
 
 
 class TestPasteInternalBlocksFromEditor(unittest.TestCase):
-    def prepare(self, v, pasted):
-        v.editing_block = v.blocks[-1]
-        v._read_blocks_from_clipboard = lambda allow_plain_text: pasted
-        v._begin_structural = lambda: "before"
-        v._finish_editing = lambda: setattr(v, "editing_block", None)
-        v._end_structural = lambda pre: self.assertEqual(pre, "before")
-        v.queue_resize = lambda: None
+    def view(self, blocks, editing_index, pasted):
+        insert = Mock(return_value=True)
+        view = SimpleNamespace(
+            blocks=blocks,
+            editing_block=blocks[editing_index],
+            _read_blocks_from_clipboard=lambda allow_plain_text: pasted,
+            _block_index=lambda block: blocks.index(block),
+            _subtree_end=lambda index: subtree_end(blocks, index),
+            _begin_structural=lambda: "before",
+            _insert_pasted_blocks=insert,
+        )
+        view._finish_editing = lambda: setattr(view, "editing_block", None)
+        return view, insert
 
-    def test_replaces_empty_day_placeholder(self):
-        v = view((0, ""))
-        self.prepare(v, [Block(0, "parent"), Block(1, "child")])
+    def test_empty_target_is_removed_before_inserting_at_its_level(self):
+        blocks = [Block(0, "parent"), Block(1, ""), Block(1, "sibling")]
+        pasted = [Block(0, "pasted"), Block(1, "pasted child")]
+        view, insert = self.view(blocks, 1, pasted)
 
-        self.assertTrue(v._paste_internal_blocks_from_editor())
-
-        self.assertEqual(shape(v), [(0, "parent"), (1, "child")])
-        self.assertEqual(v.selection, (0, 1))
-
-    def test_replaces_empty_block_at_its_existing_level(self):
-        v = view((0, "parent"), (1, ""), (1, "sibling"))
-        self.prepare(v, [Block(0, "pasted"), Block(1, "pasted child")])
-        v.editing_block = v.blocks[1]
-
-        self.assertTrue(v._paste_internal_blocks_from_editor())
+        self.assertTrue(BlocksView._paste_internal_blocks_from_editor(view))
 
         self.assertEqual(
-            shape(v),
-            [
-                (0, "parent"),
-                (1, "pasted"),
-                (2, "pasted child"),
-                (1, "sibling"),
-            ],
+            [(block.level, block.text) for block in blocks],
+            [(0, "parent"), (1, "sibling")],
         )
-        self.assertEqual(v.selection, (1, 2))
+        insert.assert_called_once_with(pasted, 1, 1, "before")
 
     def test_inserts_after_target_subtree_at_target_level(self):
-        v = view((0, "parent"), (1, "target"), (2, "existing child"))
-        self.prepare(v, [Block(0, "pasted"), Block(1, "pasted child")])
-        v.editing_block = v.blocks[1]
+        blocks = [
+            Block(0, "parent"),
+            Block(1, "target"),
+            Block(2, "existing child"),
+        ]
+        pasted = [Block(0, "pasted"), Block(1, "pasted child")]
+        view, insert = self.view(blocks, 1, pasted)
 
-        self.assertTrue(v._paste_internal_blocks_from_editor())
+        self.assertTrue(BlocksView._paste_internal_blocks_from_editor(view))
 
-        self.assertEqual(
-            shape(v),
-            [
-                (0, "parent"),
-                (1, "target"),
-                (2, "existing child"),
-                (1, "pasted"),
-                (2, "pasted child"),
-            ],
-        )
+        insert.assert_called_once_with(pasted, 3, 1, "before")
 
     def test_leaves_external_plain_text_to_textview(self):
-        v = view((0, "target"))
-        self.prepare(v, None)
+        blocks = [Block(0, "target")]
+        view, insert = self.view(blocks, 0, None)
 
-        self.assertFalse(v._paste_internal_blocks_from_editor())
+        self.assertFalse(BlocksView._paste_internal_blocks_from_editor(view))
 
-        self.assertEqual(shape(v), [(0, "target")])
-        self.assertIs(v.editing_block, v.blocks[0])
+        insert.assert_not_called()
+        self.assertIs(view.editing_block, blocks[0])

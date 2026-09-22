@@ -70,6 +70,13 @@ class TestHistory(unittest.TestCase):
         blocks[0].collapsed = False
         self.assertTrue(h.undo_stack[0].blocks[0].collapsed)
 
+    def test_snapshot_preserves_code_language(self):
+        h = History()
+        blocks = [Block(0, "code body", code_lang="python")]
+        h.commit_structural(blocks, None)
+        blocks[0].code_lang = "rust"
+        self.assertEqual(h.undo_stack[0].blocks[0].code_lang, "python")
+
     def test_cap_drops_oldest(self):
         h = History(cap=3)
         for i in range(5):
@@ -92,4 +99,3 @@ class TestHistory(unittest.TestCase):
         h.undo(bs("abc"), None)
         h.commit_text(bs("ax"), None, 0)
         self.assertEqual(len(h.redo_stack), 0)
-

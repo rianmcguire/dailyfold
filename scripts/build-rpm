@@ -45,7 +45,6 @@ source_files=(
     search_dialog.py
     storage.py
     window.py
-    _app_test_support.py
     test_blocks_view.py
     test_clipboard.py
     test_history.py
