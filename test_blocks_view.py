@@ -273,6 +273,46 @@ class TestDeleteEmpty(unittest.TestCase):
         self.assertEqual(moved, [cursor])
 
 
+class TestReorderVisibility(unittest.TestCase):
+    def test_reveals_edited_block_after_reorder(self):
+        block = Block(0, "moving")
+        view = SimpleNamespace(
+            blocks=[block, Block(0, "other")],
+            editing_block=block,
+            _block_index=lambda _block: 0,
+            _subtree_end=lambda _index: 1,
+            _begin_structural=lambda: "before",
+            _move_range=lambda _start, _end, _direction: (1, 2),
+            _end_structural=Mock(),
+            canvas=SimpleNamespace(queue_draw=Mock()),
+            queue_resize=Mock(),
+            ensure_block_visible=Mock(),
+        )
+
+        self.assertTrue(BlocksView._handle_move_block_in_edit(view, +1))
+
+        view.ensure_block_visible.assert_called_once_with(block)
+
+    def test_reveals_selection_head_after_reorder(self):
+        blocks = [Block(0, text) for text in ("first", "moving", "last")]
+        view = SimpleNamespace(
+            blocks=blocks,
+            selection=(1, 1),
+            _selection_indices=lambda: [1],
+            _begin_structural=lambda: "before",
+            _move_range=lambda _start, _end, _direction: (2, 3),
+            _end_structural=Mock(),
+            canvas=SimpleNamespace(queue_draw=Mock()),
+            queue_resize=Mock(),
+            ensure_block_visible=Mock(),
+        )
+
+        self.assertTrue(BlocksView._handle_move_selection(view, +1))
+
+        self.assertEqual(view.selection, (2, 2))
+        view.ensure_block_visible.assert_called_once_with(blocks[2])
+
+
 class TestContentFont(unittest.TestCase):
     def test_body_font_is_ten_percent_larger_than_widget_default(self):
         default_font = Pango.FontDescription("Sans 10")

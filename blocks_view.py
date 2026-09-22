@@ -1478,6 +1478,7 @@ class BlocksView(Gtk.Overlay):
         self._end_structural(pre)
         self.canvas.queue_draw()
         self.queue_resize()
+        self.ensure_block_visible(self.editing_block)
         return True
 
     def _handle_enter(self, force_split=False):
@@ -1873,6 +1874,8 @@ class BlocksView(Gtk.Overlay):
         delta = new_start - start
         self.selection = (anchor + delta, head + delta)
         self.canvas.queue_draw()
+        self.queue_resize()
+        self.ensure_block_visible(self.blocks[self.selection[1]])
         return True
 
     def _exit_selection_to_edit(self, at_end):
