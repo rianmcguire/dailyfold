@@ -16,7 +16,23 @@ podman run --rm \
         scripts/build-rpm
     '
 
-if [ "${CI_REF:-}" = main ]; then
-    # TODO: Upload the RPM from dist/ to the release destination.
-    :
+if [ "${CI_REF:-}" = "refs/heads/main" ] && [ -n "${WEBSITE_DIR:-}" ]; then
+    echo "Publishing RPM..."
+
+    website_dir=$WEBSITE_DIR
+    rpm_file=$(readlink -f dist/dailyfold-latest.noarch.rpm)
+    [ -f "$rpm_file" ] || { echo "Built RPM not found: $rpm_file" >&2; exit 1; }
+    [ -f "$website_dir/Rakefile" ] || { echo "Website checkout not found: $website_dir" >&2; exit 1; }
+
+    staged_rpm="$website_dir/static/rpm/$(basename "$rpm_file")"
+    if [ -e "$staged_rpm" ]; then
+        cmp -s "$rpm_file" "$staged_rpm" || {
+            echo "RPM already staged with different contents: $staged_rpm" >&2
+            exit 1
+        }
+    else
+        cp "$rpm_file" "$staged_rpm"
+    fi
+
+    (cd "$website_dir" && mise exec -- rake "publish_rpm[$staged_rpm]")
 fi
