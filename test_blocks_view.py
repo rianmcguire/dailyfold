@@ -313,6 +313,28 @@ class TestDeleteEmpty(unittest.TestCase):
         self.assertEqual(moved, [cursor])
 
 
+class TestBackspaceJoin(unittest.TestCase):
+    def test_selected_text_is_deleted_instead_of_joining_blocks(self):
+        block = Block(0, "item 2")
+        current_position = Mock(return_value=(1, 0, 0))
+        begin_structural = Mock()
+        view = SimpleNamespace(
+            editing_block=block,
+            edit_view=SimpleNamespace(
+                get_buffer=lambda: SimpleNamespace(
+                    get_selection_bounds=lambda: (object(), object())
+                )
+            ),
+            _current_position=current_position,
+            _begin_structural=begin_structural,
+        )
+
+        self.assertFalse(BlocksView._maybe_handle_backspace_join(view))
+
+        current_position.assert_not_called()
+        begin_structural.assert_not_called()
+
+
 class TestReorderVisibility(unittest.TestCase):
     def test_reveals_edited_block_after_reorder(self):
         block = Block(0, "moving")

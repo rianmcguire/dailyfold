@@ -1567,6 +1567,8 @@ class BlocksView(Gtk.Overlay):
     def _maybe_handle_backspace_join(self):
         if self.editing_block is None:
             return False
+        if self.edit_view.get_buffer().get_selection_bounds():
+            return False
         b, l, c = self._current_position()
         if l != 0 or c != 0:
             return False
