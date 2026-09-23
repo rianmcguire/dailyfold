@@ -8,10 +8,11 @@ Heavily inspired by [Logseq](https://logseq.com/)'s journal, and the files are (
 
 ## Installing
 
-GitHub Releases include a noarch RPM for Fedora:
+There's a package available for Fedora:
 
-```
-sudo dnf install https://github.com/rianmcguire/dailyfold/releases/latest/download/dailyfold-latest.noarch.rpm
+```sh
+sudo dnf config-manager addrepo --from-repofile=https://rian.id.au/rpm/rian.repo
+sudo dnf install dailyfold
 ```
 
 ## Building
