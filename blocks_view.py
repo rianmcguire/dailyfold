@@ -1118,6 +1118,13 @@ class BlocksView(Gtk.Overlay):
             Gdk.KEY_KP_Enter,
         ):
             return self._handle_enter(force_split=True)
+        if state == Gdk.ModifierType.CONTROL_MASK and event.keyval in (
+            Gdk.KEY_Up,
+            Gdk.KEY_Down,
+        ):
+            return self._handle_fold_command(
+                collapsed=event.keyval == Gdk.KEY_Up
+            )
         if state == 0:
             if event.keyval == Gdk.KEY_Up:
                 return self._handle_up()
@@ -1272,6 +1279,32 @@ class BlocksView(Gtk.Overlay):
         if self.edit_view is not None:
             self._finish_editing()
         self.blocks[block_idx].collapsed = not self.blocks[block_idx].collapsed
+        self._end_structural(pre)
+        self.canvas.queue_draw()
+        self.queue_resize()
+        return True
+
+    def _handle_fold_command(self, collapsed):
+        if self.editing_block is not None:
+            block_idx = self._block_index(self.editing_block)
+        elif (
+            self.selection is not None
+            and self.selection[0] == self.selection[1]
+        ):
+            block_idx = self.selection[1]
+        else:
+            return False
+
+        if not (0 <= block_idx < len(self.blocks)):
+            return False
+        if self._subtree_end(block_idx) == block_idx + 1:
+            return True
+        block = self.blocks[block_idx]
+        if block.collapsed == collapsed:
+            return True
+
+        pre = self._begin_structural()
+        block.collapsed = collapsed
         self._end_structural(pre)
         self.canvas.queue_draw()
         self.queue_resize()
@@ -1679,6 +1712,13 @@ class BlocksView(Gtk.Overlay):
             state == Gdk.ModifierType.CONTROL_MASK | Gdk.ModifierType.SHIFT_MASK
         ) and event.keyval in (Gdk.KEY_z, Gdk.KEY_Z):
             return self._do_redo()
+        if state == Gdk.ModifierType.CONTROL_MASK and event.keyval in (
+            Gdk.KEY_Up,
+            Gdk.KEY_Down,
+        ):
+            return self._handle_fold_command(
+                collapsed=event.keyval == Gdk.KEY_Up
+            )
         if self.selection is None:
             return False
         anchor, head = self.selection

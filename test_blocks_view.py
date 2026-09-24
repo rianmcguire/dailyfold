@@ -21,7 +21,7 @@ from blocks_view import (
     toggle_task_text,
 )
 from model import Block
-from outline import CursorPosition
+from outline import CursorPosition, subtree_end
 
 
 class TestCanvasFocus(unittest.TestCase):
@@ -354,6 +354,27 @@ class TestBlockKeyboardShortcuts(unittest.TestCase):
 
                 select_all.assert_called_once_with()
 
+    def test_ctrl_arrows_dispatch_explicit_fold_commands(self):
+        for handler in (
+            BlocksView._on_key_press,
+            BlocksView._on_canvas_key_press,
+        ):
+            for keyval, collapsed in (
+                (Gdk.KEY_Up, True),
+                (Gdk.KEY_Down, False),
+            ):
+                with self.subTest(handler=handler.__name__, keyval=keyval):
+                    fold = Mock(return_value=True)
+                    view = SimpleNamespace(_handle_fold_command=fold)
+                    event = SimpleNamespace(
+                        state=Gdk.ModifierType.CONTROL_MASK,
+                        keyval=keyval,
+                    )
+
+                    self.assertTrue(handler(view, None, event))
+
+                    fold.assert_called_once_with(collapsed=collapsed)
+
     def test_select_all_blocks_enters_document_wide_selection(self):
         blocks = [Block(0, "one"), Block(0, "two")]
         finish_editing = Mock()
@@ -373,6 +394,61 @@ class TestBlockKeyboardShortcuts(unittest.TestCase):
         finish_editing.assert_called_once_with()
         grab_canvas_focus.assert_called_once_with()
         canvas.queue_draw.assert_called_once_with()
+
+    def test_fold_commands_apply_only_to_focused_block(self):
+        blocks = [
+            Block(0, "parent"),
+            Block(1, "nested parent"),
+            Block(2, "child"),
+            Block(0, "leaf"),
+        ]
+        end_structural = Mock()
+        view = SimpleNamespace(
+            blocks=blocks,
+            selection=None,
+            editing_block=blocks[1],
+            _block_index=lambda block: blocks.index(block),
+            _subtree_end=lambda index: subtree_end(blocks, index),
+            _begin_structural=lambda: "before",
+            _end_structural=end_structural,
+            canvas=SimpleNamespace(queue_draw=Mock()),
+            queue_resize=Mock(),
+        )
+
+        self.assertTrue(
+            BlocksView._handle_fold_command(view, collapsed=True)
+        )
+        self.assertEqual(
+            [block.collapsed for block in blocks],
+            [False, True, False, False],
+        )
+
+        self.assertTrue(
+            BlocksView._handle_fold_command(view, collapsed=False)
+        )
+        self.assertEqual(
+            [block.collapsed for block in blocks],
+            [False, False, False, False],
+        )
+        self.assertEqual(
+            end_structural.call_args_list,
+            [call("before"), call("before")],
+        )
+
+    def test_fold_commands_do_not_apply_to_multi_block_selection(self):
+        begin_structural = Mock()
+        view = SimpleNamespace(
+            blocks=[Block(0, "one"), Block(0, "two")],
+            selection=(0, 1),
+            editing_block=None,
+            _begin_structural=begin_structural,
+        )
+
+        self.assertFalse(
+            BlocksView._handle_fold_command(view, collapsed=True)
+        )
+
+        begin_structural.assert_not_called()
 
 
 class TestReorderVisibility(unittest.TestCase):
