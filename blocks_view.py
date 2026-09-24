@@ -59,6 +59,7 @@ CODE_INDENT_WIDTH = 4
 BG = (1.0, 1.0, 1.0)
 FG = (0.13, 0.13, 0.13)
 DIM = (0.55, 0.55, 0.57)
+COLLAPSED_INDICATOR = (0.34, 0.34, 0.36)
 GUIDE = (0.87, 0.87, 0.89)
 SELECTION_BG = (0.83, 0.90, 0.99)
 CODE_BG = (0xfd / 255, 0xf6 / 255, 0xe3 / 255)
@@ -456,14 +457,16 @@ def paint_blocks(
 
         bullet_x = X0 + block.level * INDENT + 5.5
         bullet_y = bl.y + TEXT_PAD + body_line_h / 2
-        cr.set_source_rgb(*(FG if block is hovered_bullet else DIM))
         if bl.has_children and block.collapsed:
-            cr.move_to(bullet_x - 2.5, bullet_y - 3.5)
-            cr.line_to(bullet_x + 3.5, bullet_y)
-            cr.line_to(bullet_x - 2.5, bullet_y + 3.5)
+            color = FG if block is hovered_bullet else COLLAPSED_INDICATOR
+            cr.set_source_rgb(*color)
+            cr.move_to(bullet_x - 3.0, bullet_y - 4.5)
+            cr.line_to(bullet_x + 4.5, bullet_y)
+            cr.line_to(bullet_x - 3.0, bullet_y + 4.5)
             cr.close_path()
             cr.fill()
         else:
+            cr.set_source_rgb(*(FG if block is hovered_bullet else DIM))
             cr.arc(bullet_x, bullet_y, 2.5, 0, 2 * 3.14159)
             cr.fill()
 
