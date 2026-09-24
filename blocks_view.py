@@ -460,9 +460,9 @@ def paint_blocks(
         if bl.has_children and block.collapsed:
             color = FG if block is hovered_bullet else COLLAPSED_INDICATOR
             cr.set_source_rgb(*color)
-            cr.move_to(bullet_x - 3.0, bullet_y - 4.5)
-            cr.line_to(bullet_x + 4.5, bullet_y)
-            cr.line_to(bullet_x - 3.0, bullet_y + 4.5)
+            cr.move_to(bullet_x - 4.0, bullet_y - 4.5)
+            cr.line_to(bullet_x + 3.5, bullet_y)
+            cr.line_to(bullet_x - 4.0, bullet_y + 4.5)
             cr.close_path()
             cr.fill()
         else:
