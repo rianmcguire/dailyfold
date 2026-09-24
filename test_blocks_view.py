@@ -7,7 +7,7 @@ import gi
 gi.require_version("Gdk", "3.0")
 gi.require_version("Gtk", "3.0")
 gi.require_version("PangoCairo", "1.0")
-from gi.repository import Gdk, Pango
+from gi.repository import Gdk, Pango, PangoCairo
 
 from blocks_view import (
     BlocksView,
@@ -15,6 +15,7 @@ from blocks_view import (
     _task_markup,
     append_area_hit,
     completes_edit_activation_click,
+    compute_layouts,
     resolve_body_font,
     task_label_hit,
     task_state,
@@ -504,6 +505,33 @@ class TestContentFont(unittest.TestCase):
 
         self.assertEqual(body_font.get_size(), 11 * Pango.SCALE)
         self.assertEqual(default_font.get_size(), 10 * Pango.SCALE)
+
+
+class TestEditingLayout(unittest.TestCase):
+    def test_raw_markdown_can_grow_editor_beyond_rendered_height(self):
+        link = Block(
+            0,
+            "[docs](https://example.com/"
+            + "very-long-segment-" * 12
+            + ")",
+        )
+        following = Block(0, "following")
+        blocks = [link, following]
+        context = PangoCairo.FontMap.get_default().create_context()
+        font = Pango.FontDescription("Sans 11")
+
+        _, rendered = compute_layouts(context, 320, font, "date", blocks)
+        _, editing = compute_layouts(
+            context,
+            320,
+            font,
+            "date",
+            blocks,
+            editing_block=link,
+        )
+
+        self.assertGreater(editing[0].height, rendered[0].height)
+        self.assertGreater(editing[1].y, rendered[1].y)
 
 
 class TestTasks(unittest.TestCase):

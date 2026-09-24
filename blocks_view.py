@@ -277,7 +277,14 @@ def publish_clipboard(canvas, targets, plain_text):
         Gtk.Clipboard.get(Gdk.SELECTION_CLIPBOARD).set_text(plain_text, -1)
 
 
-def compute_layouts(pango_context, width, body_font, header_text, blocks):
+def compute_layouts(
+    pango_context,
+    width,
+    body_font,
+    header_text,
+    blocks,
+    editing_block=None,
+):
     header_font = _header_font_of(body_font)
 
     sample = Pango.Layout.new(pango_context)
@@ -328,9 +335,19 @@ def compute_layouts(pango_context, width, body_font, header_text, blocks):
         tw = max(1, width - tx - RIGHT_PAD)
 
         lay = Pango.Layout.new(pango_context)
-        lay.set_width(tw * Pango.SCALE)
+        editing_width = tw
+        if block is editing_block and checkbox_x is not None:
+            editing_width += tx - checkbox_x
+        lay.set_width(
+            (editing_width if block is editing_block else tw) * Pango.SCALE
+        )
         lay.set_wrap(Pango.WrapMode.WORD_CHAR)
-        if block.code_lang is not None:
+        if block is editing_block:
+            lay.set_font_description(
+                code_font if block.code_lang is not None else body_font
+            )
+            lay.set_text(block.text, -1)
+        elif block.code_lang is not None:
             lay.set_font_description(code_font)
             lay.set_text(block.text, -1)
         else:
@@ -586,6 +603,7 @@ class BlocksView(Gtk.Overlay):
             body_font,
             self.header_text,
             self.blocks,
+            editing_block=self.editing_block,
         )
         if self.layouts:
             content_bottom = self.layouts[-1].y + self.layouts[-1].height
@@ -1065,6 +1083,7 @@ class BlocksView(Gtk.Overlay):
         tv.show()
         tv.grab_focus()
         self.canvas.queue_draw()
+        self.queue_resize()
         self.ensure_block_visible(bl.block)
 
     def _position_overlay(self, overlay, widget, allocation):
@@ -2066,3 +2085,4 @@ class BlocksView(Gtk.Overlay):
         block.text = buf.get_text(start, end, True)
         self.remove(tv)
         self.canvas.queue_draw()
+        self.queue_resize()
