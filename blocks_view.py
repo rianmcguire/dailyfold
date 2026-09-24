@@ -451,24 +451,18 @@ def paint_blocks(
             cr.set_line_width(1)
             for g in range(1, block.level + 1):
                 gxi = X0 + (g - 1) * INDENT + 5
-                cr.move_to(gxi - 0.5, bl.y)
-                cr.line_to(gxi - 0.5, bl.y + bl.height)
+                cr.move_to(gxi + 0.5, bl.y)
+                cr.line_to(gxi + 0.5, bl.y + bl.height)
                 cr.stroke()
 
         bullet_x = X0 + block.level * INDENT + 5.5
         bullet_y = bl.y + TEXT_PAD + body_line_h / 2
-        if bl.has_children:
-            if block.collapsed:
-                color = FG if block is hovered_bullet else COLLAPSED_INDICATOR
-                cr.set_source_rgb(*color)
-                cr.move_to(bullet_x - 4.0, bullet_y - 4.5)
-                cr.line_to(bullet_x + 3.5, bullet_y)
-                cr.line_to(bullet_x - 4.0, bullet_y + 4.5)
-            else:
-                cr.set_source_rgb(*(FG if block is hovered_bullet else DIM))
-                cr.move_to(bullet_x - 5.5, bullet_y - 4.0)
-                cr.line_to(bullet_x + 3.5, bullet_y - 4.0)
-                cr.line_to(bullet_x - 1.0, bullet_y + 3.5)
+        if bl.has_children and block.collapsed:
+            color = FG if block is hovered_bullet else COLLAPSED_INDICATOR
+            cr.set_source_rgb(*color)
+            cr.move_to(bullet_x - 4.0, bullet_y - 4.5)
+            cr.line_to(bullet_x + 3.5, bullet_y)
+            cr.line_to(bullet_x - 4.0, bullet_y + 4.5)
             cr.close_path()
             cr.fill()
         else:
