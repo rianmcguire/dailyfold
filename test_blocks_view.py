@@ -335,6 +335,46 @@ class TestBackspaceJoin(unittest.TestCase):
         begin_structural.assert_not_called()
 
 
+class TestBlockKeyboardShortcuts(unittest.TestCase):
+    def test_ctrl_shift_a_selects_all_from_editor_and_canvas(self):
+        modifiers = (
+            Gdk.ModifierType.CONTROL_MASK | Gdk.ModifierType.SHIFT_MASK
+        )
+        event = SimpleNamespace(state=modifiers, keyval=Gdk.KEY_a)
+
+        for handler in (
+            BlocksView._on_key_press,
+            BlocksView._on_canvas_key_press,
+        ):
+            with self.subTest(handler=handler.__name__):
+                select_all = Mock(return_value=True)
+                view = SimpleNamespace(_select_all_blocks=select_all)
+
+                self.assertTrue(handler(view, None, event))
+
+                select_all.assert_called_once_with()
+
+    def test_select_all_blocks_enters_document_wide_selection(self):
+        blocks = [Block(0, "one"), Block(0, "two")]
+        finish_editing = Mock()
+        grab_canvas_focus = Mock()
+        canvas = SimpleNamespace(queue_draw=Mock())
+        view = SimpleNamespace(
+            blocks=blocks,
+            selection=None,
+            _finish_editing=finish_editing,
+            _grab_canvas_focus=grab_canvas_focus,
+            canvas=canvas,
+        )
+
+        self.assertTrue(BlocksView._select_all_blocks(view))
+
+        self.assertEqual(view.selection, (0, 1))
+        finish_editing.assert_called_once_with()
+        grab_canvas_focus.assert_called_once_with()
+        canvas.queue_draw.assert_called_once_with()
+
+
 class TestReorderVisibility(unittest.TestCase):
     def test_reveals_edited_block_after_reorder(self):
         block = Block(0, "moving")

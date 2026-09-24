@@ -1091,6 +1091,12 @@ class BlocksView(Gtk.Overlay):
 
     def _on_key_press(self, tv, event):
         state = event.state & Gtk.accelerator_get_default_mod_mask()
+        if (
+            state
+            == Gdk.ModifierType.CONTROL_MASK | Gdk.ModifierType.SHIFT_MASK
+            and event.keyval in (Gdk.KEY_a, Gdk.KEY_A)
+        ):
+            return self._select_all_blocks()
         if state == Gdk.ModifierType.CONTROL_MASK and event.keyval in (
             Gdk.KEY_a,
             Gdk.KEY_A,
@@ -1627,8 +1633,23 @@ class BlocksView(Gtk.Overlay):
         self.canvas.queue_draw()
         return True
 
+    def _select_all_blocks(self):
+        if not self.blocks:
+            return True
+        self._finish_editing()
+        self.selection = (0, len(self.blocks) - 1)
+        self._grab_canvas_focus()
+        self.canvas.queue_draw()
+        return True
+
     def _on_canvas_key_press(self, widget, event):
         state = event.state & Gtk.accelerator_get_default_mod_mask()
+        if (
+            state
+            == Gdk.ModifierType.CONTROL_MASK | Gdk.ModifierType.SHIFT_MASK
+            and event.keyval in (Gdk.KEY_a, Gdk.KEY_A)
+        ):
+            return self._select_all_blocks()
         if state == Gdk.ModifierType.CONTROL_MASK and event.keyval in (
             Gdk.KEY_c,
             Gdk.KEY_C,
