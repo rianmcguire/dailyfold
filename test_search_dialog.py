@@ -27,3 +27,14 @@ class TestSearchResultMarkup(unittest.TestCase):
             'first <span background="#fff0a8" foreground="#222222">'
             'second</span>',
         )
+
+    def test_accepts_theme_highlight_colors(self):
+        self.assertEqual(
+            _search_result_markup(
+                "find me",
+                "find",
+                match_bg="#123456",
+                match_fg="#abcdef",
+            ),
+            '<span background="#123456" foreground="#abcdef">find</span> me',
+        )

@@ -51,6 +51,7 @@ from outline import (
     visible_block_indices,
     visible_neighbor,
 )
+from ui_theme import color_hex, palette_for
 
 
 CODE_INDENT_WIDTH = 4
@@ -65,12 +66,6 @@ SELECTION_BG = (0.83, 0.90, 0.99)
 CODE_BG = (0xfd / 255, 0xf6 / 255, 0xe3 / 255)
 TODO_ACCENT = (0x04 / 255, 0x55 / 255, 0x91 / 255)
 DONE_ACCENT = (0.27, 0.57, 0.38)
-CODE_BG_CSS = b"""
-textview.code-block, textview.code-block text {
-    background-color: #fdf6e3;
-}
-"""
-
 TASK_RE = re.compile(r"^(TODO|DONE) ")
 
 X0 = 32
@@ -124,32 +119,40 @@ def toggle_task_text(text):
     return replacement + text[4:]
 
 
-def _task_label_markup(state):
+def _task_label_markup(state, palette=None):
+    todo_fg = color_hex(palette.todo_accent) if palette else "#045591"
+    todo_bg = color_hex(palette.todo_bg) if palette else "#e1f0f7"
+    done_fg = color_hex(palette.done_accent) if palette else "#2f6f44"
+    done_bg = color_hex(palette.done_bg) if palette else "#def3e5"
     if state == "TODO":
         return (
-            '<span foreground="#045591" background="#e1f0f7" '
+            f'<span foreground="{todo_fg}" background="{todo_bg}" '
             f'weight="bold">{THIN_SPACE}TODO{THIN_SPACE}</span>'
         )
     return (
-        '<span foreground="#2f6f44" background="#def3e5" '
+        f'<span foreground="{done_fg}" background="{done_bg}" '
         f'weight="bold">{THIN_SPACE}DONE{THIN_SPACE}</span>'
     )
 
 
-def _task_markup(text, inline=None):
+def _task_markup(text, inline=None, palette=None):
+    link_color = color_hex(palette.link) if palette else "#1a5fb4"
     state = task_state(text)
     if state is None:
         if inline is None:
             inline = parse_inline(text)
-        return runs_to_markup(inline.runs)
+        return runs_to_markup(inline.runs, link_color=link_color)
 
-    body_markup = runs_to_markup(parse_inline(text[5:]).runs)
+    body_markup = runs_to_markup(
+        parse_inline(text[5:]).runs, link_color=link_color
+    )
     if state == "DONE":
+        done_text = color_hex(palette.muted_text) if palette else "#88898c"
         body_markup = (
-            '<span foreground="#88898c" strikethrough="true">'
+            f'<span foreground="{done_text}" strikethrough="true">'
             f"{body_markup}</span>"
         )
-    return _task_label_markup(state) + " " + body_markup
+    return _task_label_markup(state, palette) + " " + body_markup
 
 
 def _block_task_state(block):
@@ -158,8 +161,8 @@ def _block_task_state(block):
     return task_state(block.text)
 
 
-def _block_markup(block, inline=None):
-    return _task_markup(block.text, inline)
+def _block_markup(block, inline=None, palette=None):
+    return _task_markup(block.text, inline, palette)
 
 
 def resolve_body_font(widget=None):
@@ -193,26 +196,27 @@ def _code_font_of(body_font):
     return cf
 
 
-_CODE_CSS_PROVIDER = None
-
-
-def _code_css_provider():
-    global _CODE_CSS_PROVIDER
-    if _CODE_CSS_PROVIDER is None:
-        p = Gtk.CssProvider()
-        p.load_from_data(CODE_BG_CSS)
-        _CODE_CSS_PROVIDER = p
-    return _CODE_CSS_PROVIDER
-
-
-def _apply_code_textview_style(tv, on):
+def _apply_code_textview_style(tv, on, palette=None):
     ctx = tv.get_style_context()
+    old_provider = getattr(tv, "_dailyfold_code_css_provider", None)
+    if old_provider is not None:
+        ctx.remove_provider(old_provider)
+        tv._dailyfold_code_css_provider = None
     if on:
         ctx.add_class("code-block")
-        ctx.add_provider(_code_css_provider(), Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION)
+        background = color_hex(palette.code_bg) if palette else "#fdf6e3"
+        provider = Gtk.CssProvider()
+        provider.load_from_data(
+            (
+                "textview.code-block, textview.code-block text {"
+                f"background-color: {background};"
+                "}"
+            ).encode("ascii")
+        )
+        ctx.add_provider(provider, Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION)
+        tv._dailyfold_code_css_provider = provider
     else:
         ctx.remove_class("code-block")
-        ctx.remove_provider(_code_css_provider())
 
 
 def append_area_hit(blocks, layouts, header_layout, body_row_height, y):
@@ -386,11 +390,18 @@ def _rounded_rectangle(cr, x, y, width, height, radius):
     cr.close_path()
 
 
-def _paint_task_checkbox(cr, bl, state):
+def _paint_task_checkbox(cr, bl, state, palette=None):
     x = bl.checkbox_x
     y = bl.checkbox_y
     size = TASK_CHECKBOX_SIZE
-    accent = DONE_ACCENT if state == "DONE" else TODO_ACCENT
+    if palette is None:
+        accent = DONE_ACCENT if state == "DONE" else TODO_ACCENT
+        checkmark = (1.0, 1.0, 1.0)
+    else:
+        accent = (
+            palette.done_accent if state == "DONE" else palette.todo_accent
+        )
+        checkmark = palette.checkmark
 
     cr.save()
     _rounded_rectangle(cr, x + 0.5, y + 0.5, size - 1, size - 1, 2.5)
@@ -401,7 +412,7 @@ def _paint_task_checkbox(cr, bl, state):
     cr.stroke()
 
     if state == "DONE":
-        cr.set_source_rgb(1, 1, 1)
+        cr.set_source_rgb(*checkmark)
         cr.set_line_width(1.7)
         cr.set_line_cap(cairo.LineCap.ROUND)
         cr.set_line_join(cairo.LineJoin.ROUND)
@@ -423,9 +434,19 @@ def paint_blocks(
     skip_text_for=None,
     selected_blocks=None,
     hovered_bullet=None,
+    palette=None,
 ):
     selected_blocks = selected_blocks or set()
-    cr.set_source_rgb(*BG)
+    background = palette.background if palette else BG
+    selection_bg = palette.selection_bg if palette else SELECTION_BG
+    code_bg = palette.code_bg if palette else CODE_BG
+    guide = palette.guide if palette else GUIDE
+    dim = palette.muted_text if palette else DIM
+    collapsed_indicator = (
+        palette.collapsed_indicator if palette else COLLAPSED_INDICATOR
+    )
+    hover_fg = palette.text if palette else FG
+    cr.set_source_rgb(*background)
     cr.paint()
 
     layout = PangoCairo.create_layout(cr)
@@ -450,11 +471,11 @@ def paint_blocks(
         block = bl.block
 
         if block in selected_blocks:
-            cr.set_source_rgb(*SELECTION_BG)
+            cr.set_source_rgb(*selection_bg)
             cr.rectangle(0, bl.y, width, bl.height)
             cr.fill()
         elif block.code_lang is not None:
-            cr.set_source_rgb(*CODE_BG)
+            cr.set_source_rgb(*code_bg)
             cr.rectangle(
                 bl.text_x - TEXT_PAD,
                 bl.y + 2,
@@ -464,7 +485,7 @@ def paint_blocks(
             cr.fill()
 
         if block.level > 0:
-            cr.set_source_rgb(*GUIDE)
+            cr.set_source_rgb(*guide)
             cr.set_line_width(1)
             for g in range(1, block.level + 1):
                 gxi = X0 + (g - 1) * INDENT + 5
@@ -476,20 +497,26 @@ def paint_blocks(
         bullet_y = bl.y + TEXT_PAD + body_line_h / 2
         if bl.has_children:
             if block.collapsed:
-                color = FG if block is hovered_bullet else COLLAPSED_INDICATOR
+                color = (
+                    hover_fg
+                    if block is hovered_bullet
+                    else collapsed_indicator
+                )
                 cr.set_source_rgb(*color)
                 cr.move_to(bullet_x - 4.0, bullet_y - 4.0)
                 cr.line_to(bullet_x + 3.5, bullet_y)
                 cr.line_to(bullet_x - 4.0, bullet_y + 3.5)
             else:
-                cr.set_source_rgb(*(FG if block is hovered_bullet else DIM))
+                cr.set_source_rgb(
+                    *(hover_fg if block is hovered_bullet else dim)
+                )
                 cr.move_to(bullet_x - 4.0, bullet_y - 4.0)
                 cr.line_to(bullet_x + 3.5, bullet_y - 4.0)
                 cr.line_to(bullet_x, bullet_y + 3.5)
             cr.close_path()
             cr.fill()
         else:
-            cr.set_source_rgb(*(FG if block is hovered_bullet else DIM))
+            cr.set_source_rgb(*(hover_fg if block is hovered_bullet else dim))
             cr.arc(bullet_x, bullet_y, 2.5, 0, 2 * 3.14159)
             cr.fill()
 
@@ -498,7 +525,7 @@ def paint_blocks(
 
         state = _block_task_state(block)
         if state is not None:
-            _paint_task_checkbox(cr, bl, state)
+            _paint_task_checkbox(cr, bl, state, palette)
 
         layout.set_width(bl.text_width * Pango.SCALE)
         layout.set_wrap(Pango.WrapMode.WORD_CHAR)
@@ -508,7 +535,7 @@ def paint_blocks(
             layout.set_text(block.text, -1)
         else:
             layout.set_font_description(body_font)
-            layout.set_markup(_block_markup(block), -1)
+            layout.set_markup(_block_markup(block, palette=palette), -1)
         cr.set_source_rgb(*fg)
         cr.move_to(bl.text_x, bl.y + TEXT_PAD)
         PangoCairo.show_layout(cr, layout)
@@ -550,6 +577,7 @@ class BlocksView(Gtk.Overlay):
             | Gdk.EventMask.KEY_PRESS_MASK
         )
         self.canvas.connect("draw", self._on_draw)
+        self.canvas.connect("style-updated", self._on_style_updated)
         self.canvas.connect("button-press-event", self._on_click)
         self.canvas.connect("button-release-event", self._on_button_release)
         self.canvas.connect("motion-notify-event", self._on_canvas_motion)
@@ -703,10 +731,7 @@ class BlocksView(Gtk.Overlay):
     def _on_draw(self, widget, cr):
         alloc = widget.get_allocation()
         self._recompute_layouts(alloc.width)
-        sc = widget.get_style_context()
-        found, rgba = sc.lookup_color("theme_text_color")
-        if not found:
-            rgba = sc.get_color(Gtk.StateFlags.NORMAL)
+        palette = palette_for(widget)
         selected_blocks = set()
         if self.selection is not None:
             for i in self._selection_indices():
@@ -718,12 +743,22 @@ class BlocksView(Gtk.Overlay):
             resolve_body_font(widget),
             self.header_layout,
             self.layouts,
-            fg=(rgba.red, rgba.green, rgba.blue),
+            fg=palette.text,
+            palette=palette,
             skip_text_for=self.editing_block,
             selected_blocks=selected_blocks,
             hovered_bullet=self._hovered_bullet,
         )
         return False
+
+    def _on_style_updated(self, widget):
+        if self.edit_view is not None and self.editing_block is not None:
+            if self.editing_block.code_lang is not None:
+                _apply_code_textview_style(
+                    self.edit_view, True, palette_for(self.canvas)
+                )
+        self.canvas.queue_draw()
+        self.queue_resize()
 
     def _block_at_y(self, y):
         for bl in self.layouts:
@@ -1051,7 +1086,7 @@ class BlocksView(Gtk.Overlay):
             tv.set_insert_spaces_instead_of_tabs(True)
             tv.set_smart_backspace(True)
             tv.set_smart_home_end(GtkSource.SmartHomeEndType.BEFORE)
-            _apply_code_textview_style(tv, True)
+            _apply_code_textview_style(tv, True, palette_for(self.canvas))
         buf = tv.get_buffer()
         if is_code:
             # GtkSourceView remains useful without language-aware colouring: its

@@ -169,6 +169,14 @@ class TestParseInline(unittest.TestCase):
         )
         self.assertIn('foreground="#1a5fb4"', runs_to_markup(parsed.runs))
 
+    def test_link_markup_accepts_theme_color(self):
+        parsed = parse_inline("https://example.com")
+
+        self.assertIn(
+            'foreground="#abcdef"',
+            runs_to_markup(parsed.runs, link_color="#abcdef"),
+        )
+
     def test_link_mapping_skips_label_and_destination_markers(self):
         parsed = parse_inline("[docs](target) next")
 

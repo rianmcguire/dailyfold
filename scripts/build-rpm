@@ -45,6 +45,7 @@ source_files=(
     search.py
     search_dialog.py
     storage.py
+    ui_theme.py
     window.py
     test_block_markdown.py
     test_blocks_view.py
@@ -55,6 +56,7 @@ source_files=(
     test_search.py
     test_search_dialog.py
     test_storage.py
+    test_ui_theme.py
     packaging
 )
 

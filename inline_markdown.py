@@ -415,7 +415,9 @@ def link_url_at_display_offset(parsed: InlineParse, display_char_idx: int):
     return None
 
 
-def runs_to_markup(runs: Iterable[InlineRun]) -> str:
+def runs_to_markup(
+    runs: Iterable[InlineRun], link_color: str = "#1a5fb4"
+) -> str:
     parts = []
     for run in runs:
         t = xml_escape(run.text)
@@ -428,7 +430,10 @@ def runs_to_markup(runs: Iterable[InlineRun]) -> str:
         if "strike" in run.style:
             t = f"<s>{t}</s>"
         if run.link_url is not None:
-            t = f'<span foreground="#1a5fb4" underline="single">{t}</span>'
+            t = (
+                f'<span foreground="{link_color}" underline="single">'
+                f"{t}</span>"
+            )
         parts.append(t)
     return "".join(parts)
 

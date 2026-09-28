@@ -10,6 +10,7 @@ gi.require_version("Gdk", "3.0")
 from gi.repository import Gdk, Gtk, Pango
 
 from search import search_journals
+from ui_theme import color_hex, palette_for
 
 
 SEARCH_RESULT_LIMIT = 50
@@ -17,7 +18,12 @@ SEARCH_MATCH_BG = "#fff0a8"
 SEARCH_MATCH_FG = "#222222"
 
 
-def _search_result_markup(text, query):
+def _search_result_markup(
+    text,
+    query,
+    match_bg=SEARCH_MATCH_BG,
+    match_fg=SEARCH_MATCH_FG,
+):
     """Return escaped, single-line text with every query match highlighted."""
     display_text = " ".join(text.splitlines())
     pattern = re.compile(re.escape(query), re.IGNORECASE)
@@ -26,8 +32,8 @@ def _search_result_markup(text, query):
     for match in pattern.finditer(display_text):
         parts.append(html_escape(display_text[position : match.start()]))
         parts.append(
-            f'<span background="{SEARCH_MATCH_BG}" '
-            f'foreground="{SEARCH_MATCH_FG}">'
+            f'<span background="{match_bg}" '
+            f'foreground="{match_fg}">'
             f"{html_escape(match.group(0))}</span>"
         )
         position = match.end()
@@ -47,6 +53,8 @@ class SearchDialog(Gtk.Dialog):
         self.data_dir = data_dir
         self.selected_result = None
         self.result_rows = []
+        self.result_labels = []
+        self.connect("style-updated", self._on_style_updated)
 
         self.set_default_size(680, 440)
         self.set_position(Gtk.WindowPosition.CENTER_ON_PARENT)
@@ -88,6 +96,7 @@ class SearchDialog(Gtk.Dialog):
         for child in self.results.get_children():
             self.results.remove(child)
         self.result_rows = []
+        self.result_labels = []
 
     def _on_search_changed(self, entry):
         query = entry.get_text()
@@ -151,9 +160,27 @@ class SearchDialog(Gtk.Dialog):
         matched_block.set_line_wrap_mode(Pango.WrapMode.WORD_CHAR)
         matched_block.set_lines(2)
         matched_block.set_ellipsize(Pango.EllipsizeMode.END)
-        matched_block.set_markup(_search_result_markup(result.text, query))
+        matched_block.search_text = result.text
+        matched_block.search_query = query
+        self._set_result_markup(matched_block)
+        self.result_labels.append(matched_block)
         box.pack_start(matched_block, False, False, 0)
         return row
+
+    def _set_result_markup(self, label):
+        palette = palette_for(self)
+        label.set_markup(
+            _search_result_markup(
+                label.search_text,
+                label.search_query,
+                match_bg=color_hex(palette.search_match_bg),
+                match_fg=color_hex(palette.search_match_fg),
+            )
+        )
+
+    def _on_style_updated(self, widget):
+        for label in self.result_labels:
+            self._set_result_markup(label)
 
     def _on_row_activated(self, listbox, row):
         self.selected_result = row.search_result
@@ -198,4 +225,3 @@ class SearchDialog(Gtk.Dialog):
             self.response(Gtk.ResponseType.CANCEL)
             return True
         return False
-
