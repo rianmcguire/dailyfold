@@ -1,12 +1,22 @@
 import unittest
 from types import SimpleNamespace
+from unittest.mock import Mock, patch
 
 import gi
 
 gi.require_version("Gtk", "3.0")
 from gi.repository import Gtk
 
-from ui_theme import _contrast, blend, color_hex, palette_for
+from ui_theme import (
+    COLOR_SCHEME_KEY,
+    COLOR_SCHEME_SCHEMA,
+    _apply_color_scheme,
+    _contrast,
+    blend,
+    color_hex,
+    follow_system_color_scheme,
+    palette_for,
+)
 
 
 def rgba(color, alpha=1.0):
@@ -71,6 +81,64 @@ class TestThemePalette(unittest.TestCase):
         self.assertGreaterEqual(_contrast(palette.link, background), 4.5)
         self.assertLess(palette.link[0], selected[0])
         self.assertLess(palette.code_bg[0], background[0])
+
+
+class TestSystemColorScheme(unittest.TestCase):
+    def test_prefer_dark_sets_gtk_dark_preference(self):
+        color_settings = Mock()
+        color_settings.get_string.return_value = "prefer-dark"
+        gtk_settings = Mock()
+
+        _apply_color_scheme(color_settings, gtk_settings)
+
+        color_settings.get_string.assert_called_once_with(COLOR_SCHEME_KEY)
+        gtk_settings.set_property.assert_called_once_with(
+            "gtk-application-prefer-dark-theme", True
+        )
+
+    def test_default_and_prefer_light_clear_gtk_dark_preference(self):
+        for value in ("default", "prefer-light"):
+            with self.subTest(value=value):
+                color_settings = Mock()
+                color_settings.get_string.return_value = value
+                gtk_settings = Mock()
+
+                _apply_color_scheme(color_settings, gtk_settings)
+
+                gtk_settings.set_property.assert_called_once_with(
+                    "gtk-application-prefer-dark-theme", False
+                )
+
+    @patch("ui_theme.Gtk.Settings.get_default")
+    @patch("ui_theme.Gio.Settings.new_full")
+    @patch("ui_theme.Gio.SettingsSchemaSource.get_default")
+    def test_binding_applies_and_watches_available_setting(
+        self,
+        get_schema_source,
+        new_settings,
+        get_gtk_settings,
+    ):
+        schema = Mock()
+        schema.list_keys.return_value = [COLOR_SCHEME_KEY]
+        source = get_schema_source.return_value
+        source.lookup.return_value = schema
+        color_settings = new_settings.return_value
+        color_settings.get_string.return_value = "prefer-dark"
+        gtk_settings = get_gtk_settings.return_value
+
+        result = follow_system_color_scheme()
+
+        self.assertIs(result, color_settings)
+        source.lookup.assert_called_once_with(COLOR_SCHEME_SCHEMA, True)
+        new_settings.assert_called_once_with(schema, None, None)
+        color_settings.connect.assert_called_once()
+        gtk_settings.set_property.assert_called_once_with(
+            "gtk-application-prefer-dark-theme", True
+        )
+
+    @patch("ui_theme.Gio.SettingsSchemaSource.get_default", return_value=None)
+    def test_missing_settings_schema_is_ignored(self, get_schema_source):
+        self.assertIsNone(follow_system_color_scheme())
 
 
 if __name__ == "__main__":

@@ -5,10 +5,12 @@ from dataclasses import dataclass
 import gi
 
 gi.require_version("Gtk", "3.0")
-from gi.repository import Gtk
+from gi.repository import Gio, Gtk
 
 
 RGB = tuple[float, float, float]
+COLOR_SCHEME_SCHEMA = "org.gnome.desktop.interface"
+COLOR_SCHEME_KEY = "color-scheme"
 
 
 @dataclass(frozen=True)
@@ -28,6 +30,40 @@ class ThemePalette:
     search_match_bg: RGB
     search_match_fg: RGB
     checkmark: RGB
+
+
+def _apply_color_scheme(color_settings, gtk_settings):
+    prefer_dark = color_settings.get_string(COLOR_SCHEME_KEY) == "prefer-dark"
+    gtk_settings.set_property(
+        "gtk-application-prefer-dark-theme", prefer_dark
+    )
+
+
+def _on_color_scheme_changed(color_settings, key, gtk_settings):
+    _apply_color_scheme(color_settings, gtk_settings)
+
+
+def follow_system_color_scheme():
+    """Make GTK3 follow the desktop color-scheme preference when available."""
+    source = Gio.SettingsSchemaSource.get_default()
+    if source is None:
+        return None
+    schema = source.lookup(COLOR_SCHEME_SCHEMA, True)
+    if schema is None or COLOR_SCHEME_KEY not in schema.list_keys():
+        return None
+
+    gtk_settings = Gtk.Settings.get_default()
+    if gtk_settings is None:
+        return None
+
+    color_settings = Gio.Settings.new_full(schema, None, None)
+    color_settings.connect(
+        f"changed::{COLOR_SCHEME_KEY}",
+        _on_color_scheme_changed,
+        gtk_settings,
+    )
+    _apply_color_scheme(color_settings, gtk_settings)
+    return color_settings
 
 
 def blend(foreground: RGB, background: RGB, amount: float) -> RGB:

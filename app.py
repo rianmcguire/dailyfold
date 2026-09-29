@@ -13,6 +13,7 @@ gi.require_version("Gdk", "3.0")
 from gi.repository import Gdk, GLib, Gtk
 
 from storage import default_data_dir, seed_journal_from_template
+from ui_theme import follow_system_color_scheme
 from window import AppWindow
 
 
@@ -48,6 +49,8 @@ def main():
         print(f"Could not initialize {data_dir}: {error}", file=sys.stderr)
 
     window = AppWindow(data_dir, initial_day=today)
+    # Keep the Gio.Settings object alive for runtime color-scheme changes.
+    window._color_scheme_settings = follow_system_color_scheme()
     window.show_all()
 
     def graceful_quit():
