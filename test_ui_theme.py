@@ -10,6 +10,8 @@ from gi.repository import Gtk
 from ui_theme import (
     COLOR_SCHEME_KEY,
     COLOR_SCHEME_SCHEMA,
+    DARK_CODE_BG,
+    LIGHT_CODE_BG,
     _apply_color_scheme,
     _contrast,
     blend,
@@ -64,7 +66,8 @@ class TestThemePalette(unittest.TestCase):
         self.assertEqual(palette.background, background)
         self.assertGreaterEqual(_contrast(palette.link, background), 4.5)
         self.assertGreaterEqual(_contrast(palette.done_accent, background), 4.5)
-        self.assertGreater(palette.code_bg[0], background[0])
+        self.assertEqual(palette.code_bg, DARK_CODE_BG)
+        self.assertGreaterEqual(_contrast(palette.text, palette.code_bg), 4.5)
 
     def test_light_theme_darkens_accent_when_needed(self):
         background = (1, 1, 1)
@@ -80,7 +83,8 @@ class TestThemePalette(unittest.TestCase):
 
         self.assertGreaterEqual(_contrast(palette.link, background), 4.5)
         self.assertLess(palette.link[0], selected[0])
-        self.assertLess(palette.code_bg[0], background[0])
+        self.assertEqual(palette.code_bg, LIGHT_CODE_BG)
+        self.assertGreaterEqual(_contrast(palette.text, palette.code_bg), 4.5)
 
 
 class TestSystemColorScheme(unittest.TestCase):

@@ -11,6 +11,8 @@ from gi.repository import Gio, Gtk
 RGB = tuple[float, float, float]
 COLOR_SCHEME_SCHEMA = "org.gnome.desktop.interface"
 COLOR_SCHEME_KEY = "color-scheme"
+LIGHT_CODE_BG = (0xFD / 255, 0xF6 / 255, 0xE3 / 255)
+DARK_CODE_BG = (0x48 / 255, 0x40 / 255, 0x29 / 255)
 
 
 @dataclass(frozen=True)
@@ -166,10 +168,13 @@ def palette_for(widget) -> ThemePalette:
         text,
     )
 
-    # Theme colors provide the hue and contrast. Subtle surfaces are blends so
-    # they remain legible on both light and dark themes without a second fixed
-    # palette to maintain.
-    code_bg = blend(text, background, 0.055)
+    # General surfaces inherit the theme. Code blocks retain Dailyfold's warm
+    # visual identity with explicit, contrast-tested light and dark colors.
+    code_bg = (
+        DARK_CODE_BG
+        if _relative_luminance(background) < 0.5
+        else LIGHT_CODE_BG
+    )
     checkmark = max(
         (text, background, selected_fg),
         key=lambda candidate: _contrast(candidate, success),
