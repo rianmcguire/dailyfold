@@ -107,6 +107,29 @@ class TestStructuralEditing(unittest.TestCase):
         )
         self.assertEqual(cursor, CursorPosition(1))
 
+    def test_split_at_end_of_collapsed_parent_creates_sibling_after_subtree(self):
+        blocks = [
+            Block(0, "parent", collapsed=True),
+            Block(1, "child"),
+            Block(2, "grandchild"),
+            Block(0, "following"),
+        ]
+
+        cursor = split_block(blocks, 0, len("parent"))
+
+        self.assertEqual(
+            [(block.level, block.text) for block in blocks],
+            [
+                (0, "parent"),
+                (1, "child"),
+                (2, "grandchild"),
+                (0, ""),
+                (0, "following"),
+            ],
+        )
+        self.assertTrue(blocks[0].collapsed)
+        self.assertEqual(cursor, CursorPosition(3))
+
     def test_split_code_block_preserves_language_on_right_side(self):
         blocks = [Block(0, "left\nright", code_lang="python")]
 

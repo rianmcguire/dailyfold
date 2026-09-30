@@ -156,7 +156,12 @@ def split_block(blocks, block_idx, offset):
     original_text = block.text
     left = original_text[:offset]
     right = original_text[offset:]
-    has_children = subtree_end(blocks, block_idx) > block_idx + 1
+    descendants_end = subtree_end(blocks, block_idx)
+    has_children = descendants_end > block_idx + 1
+
+    if has_children and block.collapsed and offset == len(original_text):
+        blocks.insert(descendants_end, Block(level=block.level, text=""))
+        return CursorPosition(descendants_end)
 
     if has_children and block.collapsed:
         block.collapsed = False
