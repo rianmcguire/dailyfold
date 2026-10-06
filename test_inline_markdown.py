@@ -55,6 +55,14 @@ class TestParseInline(unittest.TestCase):
             "<b>bold</b> <i>italic</i> <tt>code</tt> &amp; plain",
         )
 
+    def test_code_markup_accepts_background_color(self):
+        parsed = parse_inline("before `code` after")
+
+        self.assertEqual(
+            runs_to_markup(parsed.runs, code_background="#fdf6e3"),
+            'before <span background="#fdf6e3"><tt>code</tt></span> after',
+        )
+
     def test_underscore_emphasis_renders_as_italic(self):
         parsed = parse_inline("_italic_")
 

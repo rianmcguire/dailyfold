@@ -137,14 +137,21 @@ def _task_label_markup(state, palette=None):
 
 def _task_markup(text, inline=None, palette=None):
     link_color = color_hex(palette.link) if palette else "#1a5fb4"
+    code_background = color_hex(palette.code_bg) if palette else "#fdf6e3"
     state = task_state(text)
     if state is None:
         if inline is None:
             inline = parse_inline(text)
-        return runs_to_markup(inline.runs, link_color=link_color)
+        return runs_to_markup(
+            inline.runs,
+            link_color=link_color,
+            code_background=code_background,
+        )
 
     body_markup = runs_to_markup(
-        parse_inline(text[5:]).runs, link_color=link_color
+        parse_inline(text[5:]).runs,
+        link_color=link_color,
+        code_background=code_background,
     )
     if state == "DONE":
         done_text = color_hex(palette.muted_text) if palette else "#88898c"

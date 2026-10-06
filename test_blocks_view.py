@@ -609,3 +609,14 @@ class TestTasks(unittest.TestCase):
         self.assertIn('background="#def3e5"', done)
         self.assertIn('strikethrough="true"', done)
         self.assertIn("<b>ship</b>", done)
+
+    def test_inline_code_uses_palette_background(self):
+        palette = SimpleNamespace(
+            link=(0.1, 0.2, 0.3),
+            code_bg=(0x48 / 255, 0x40 / 255, 0x29 / 255),
+        )
+
+        self.assertEqual(
+            _task_markup("before `code` after", palette=palette),
+            'before <span background="#484029"><tt>code</tt></span> after',
+        )

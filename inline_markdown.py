@@ -416,13 +416,17 @@ def link_url_at_display_offset(parsed: InlineParse, display_char_idx: int):
 
 
 def runs_to_markup(
-    runs: Iterable[InlineRun], link_color: str = "#1a5fb4"
+    runs: Iterable[InlineRun],
+    link_color: str = "#1a5fb4",
+    code_background: str | None = None,
 ) -> str:
     parts = []
     for run in runs:
         t = xml_escape(run.text)
         if "code" in run.style:
             t = f"<tt>{t}</tt>"
+            if code_background is not None:
+                t = f'<span background="{code_background}">{t}</span>'
         if "italic" in run.style:
             t = f"<i>{t}</i>"
         if "bold" in run.style:
