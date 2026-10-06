@@ -288,6 +288,7 @@ def compute_layouts(
     header_text,
     blocks,
     editing_block=None,
+    editing_view_height=None,
 ):
     header_font = _header_font_of(body_font)
 
@@ -338,27 +339,23 @@ def compute_layouts(
             task_label_width = task_label_ext.width
         tw = max(1, width - tx - RIGHT_PAD)
 
-        lay = Pango.Layout.new(pango_context)
-        editing_width = tw
-        if block is editing_block and checkbox_x is not None:
-            editing_width += tx - checkbox_x
-        lay.set_width(
-            (editing_width if block is editing_block else tw) * Pango.SCALE
-        )
-        lay.set_wrap(Pango.WrapMode.WORD_CHAR)
         if block is editing_block:
-            lay.set_font_description(
-                code_font if block.code_lang is not None else body_font
+            content_h = max(
+                editing_view_height or body_line_h,
+                body_line_h,
             )
-            lay.set_text(block.text, -1)
-        elif block.code_lang is not None:
-            lay.set_font_description(code_font)
-            lay.set_text(block.text, -1)
         else:
-            lay.set_font_description(body_font)
-            lay.set_markup(_block_markup(block), -1)
-        _, ext = lay.get_pixel_extents()
-        content_h = max(ext.height, body_line_h)
+            lay = Pango.Layout.new(pango_context)
+            lay.set_width(tw * Pango.SCALE)
+            lay.set_wrap(Pango.WrapMode.WORD_CHAR)
+            if block.code_lang is not None:
+                lay.set_font_description(code_font)
+                lay.set_text(block.text, -1)
+            else:
+                lay.set_font_description(body_font)
+                lay.set_markup(_block_markup(block), -1)
+            _, ext = lay.get_pixel_extents()
+            content_h = max(ext.height, body_line_h)
         block_h = content_h + TEXT_PAD * 2
 
         layouts.append(
@@ -566,6 +563,7 @@ class BlocksView(Gtk.Overlay):
         self._clipboard_html = None
         self._clipboard_payload = None
         self._content_height = 1
+        self._editing_view_height = None
 
         self.canvas = Gtk.DrawingArea()
         self.canvas.set_can_focus(True)
@@ -632,6 +630,7 @@ class BlocksView(Gtk.Overlay):
             self.header_text,
             self.blocks,
             editing_block=self.editing_block,
+            editing_view_height=self._editing_view_height,
         )
         if self.layouts:
             content_bottom = self.layouts[-1].y + self.layouts[-1].height
@@ -1109,9 +1108,11 @@ class BlocksView(Gtk.Overlay):
         tv.connect("button-press-event", self._on_textview_press)
         tv.connect("motion-notify-event", self._on_textview_motion)
         tv.connect("button-release-event", self._on_textview_release)
+        tv.connect("size-allocate", self._on_edit_view_size_allocate)
 
         self.editing_block = bl.block
         self.edit_view = tv
+        self._editing_view_height = None
         self.desired_col = None
 
         self.add_overlay(tv)
@@ -1140,12 +1141,39 @@ class BlocksView(Gtk.Overlay):
                 return True
         return False
 
+    def _measure_edit_view_height(self):
+        """Record the live editor's full content height at its current width."""
+        tv = self.edit_view
+        if tv is None or not tv.get_realized():
+            return False
+        allocation = tv.get_allocation()
+        if allocation.width <= 1:
+            return False
+
+        end = tv.get_buffer().get_end_iter()
+        line_y, line_height = tv.get_line_yrange(end)
+        visible = tv.get_visible_rect()
+        vertical_chrome = max(0, allocation.height - visible.height)
+        measured = max(1, line_y + line_height + vertical_chrome)
+        if measured == self._editing_view_height:
+            return False
+        self._editing_view_height = measured
+        return True
+
+    def _on_edit_view_size_allocate(self, tv, allocation):
+        if tv is not self.edit_view:
+            return
+        if self._measure_edit_view_height():
+            self.canvas.queue_draw()
+            self.queue_resize()
+
     def _on_buffer_changed(self, buf):
         if self.editing_block is None:
             return
         self.desired_col = None
         start, end = buf.get_bounds()
         self.editing_block.text = buf.get_text(start, end, True)
+        self._measure_edit_view_height()
         self.canvas.queue_draw()
         self.queue_resize()
         if not self._suppress_text_snapshot:
@@ -2115,6 +2143,7 @@ class BlocksView(Gtk.Overlay):
         block = self.editing_block
         self.edit_view = None
         self.editing_block = None
+        self._editing_view_height = None
         buf = tv.get_buffer()
         start, end = buf.get_bounds()
         block.text = buf.get_text(start, end, True)

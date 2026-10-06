@@ -508,7 +508,7 @@ class TestContentFont(unittest.TestCase):
 
 
 class TestEditingLayout(unittest.TestCase):
-    def test_raw_markdown_can_grow_editor_beyond_rendered_height(self):
+    def test_observed_editor_height_positions_following_blocks(self):
         link = Block(
             0,
             "[docs](https://example.com/"
@@ -520,8 +520,7 @@ class TestEditingLayout(unittest.TestCase):
         context = PangoCairo.FontMap.get_default().create_context()
         font = Pango.FontDescription("Sans 11")
 
-        _, rendered = compute_layouts(context, 320, font, "date", blocks)
-        _, editing = compute_layouts(
+        _, initial = compute_layouts(
             context,
             320,
             font,
@@ -529,9 +528,57 @@ class TestEditingLayout(unittest.TestCase):
             blocks,
             editing_block=link,
         )
+        _, measured = compute_layouts(
+            context,
+            320,
+            font,
+            "date",
+            blocks,
+            editing_block=link,
+            editing_view_height=63,
+        )
 
-        self.assertGreater(editing[0].height, rendered[0].height)
-        self.assertGreater(editing[1].y, rendered[1].y)
+        self.assertEqual(measured[0].height, 63 + 8)
+        self.assertGreater(measured[0].height, initial[0].height)
+        self.assertEqual(
+            measured[1].y - initial[1].y,
+            measured[0].height - initial[0].height,
+        )
+
+    def test_measures_full_wrapped_height_from_live_text_view(self):
+        end = object()
+        buffer = SimpleNamespace(get_end_iter=lambda: end)
+        text_view = SimpleNamespace(
+            get_realized=lambda: True,
+            get_allocation=lambda: SimpleNamespace(width=609, height=21),
+            get_buffer=lambda: buffer,
+            get_line_yrange=lambda _end: (0, 42),
+            get_visible_rect=lambda: SimpleNamespace(height=21),
+        )
+        view = SimpleNamespace(
+            edit_view=text_view,
+            _editing_view_height=None,
+        )
+
+        self.assertTrue(BlocksView._measure_edit_view_height(view))
+        self.assertEqual(view._editing_view_height, 42)
+        self.assertFalse(BlocksView._measure_edit_view_height(view))
+
+    def test_measurement_includes_text_view_chrome(self):
+        text_view = SimpleNamespace(
+            get_realized=lambda: True,
+            get_allocation=lambda: SimpleNamespace(width=300, height=25),
+            get_buffer=lambda: SimpleNamespace(get_end_iter=lambda: object()),
+            get_line_yrange=lambda _end: (0, 42),
+            get_visible_rect=lambda: SimpleNamespace(height=21),
+        )
+        view = SimpleNamespace(
+            edit_view=text_view,
+            _editing_view_height=None,
+        )
+
+        self.assertTrue(BlocksView._measure_edit_view_height(view))
+        self.assertEqual(view._editing_view_height, 46)
 
 
 class TestTasks(unittest.TestCase):
