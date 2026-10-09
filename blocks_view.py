@@ -690,10 +690,26 @@ class BlocksView(Gtk.Overlay):
             return GLib.SOURCE_REMOVE
 
         adjustment = scroller.get_vadjustment()
-        top = block_layout.y - TEXT_PAD
-        bottom = block_layout.y + block_layout.height + TEXT_PAD
-        value = adjustment.get_value()
         page_size = adjustment.get_page_size()
+        if (
+            block is self.editing_block
+            and self.edit_view is not None
+            and block_layout.height + TEXT_PAD * 2 > page_size
+        ):
+            buf = self.edit_view.get_buffer()
+            cursor = buf.get_iter_at_mark(buf.get_insert())
+            cursor_rect = self.edit_view.get_iter_location(cursor)
+            top = block_layout.y + cursor_rect.y
+            bottom = (
+                block_layout.y
+                + TEXT_PAD * 2
+                + cursor_rect.y
+                + cursor_rect.height
+            )
+        else:
+            top = block_layout.y - TEXT_PAD
+            bottom = block_layout.y + block_layout.height + TEXT_PAD
+        value = adjustment.get_value()
         if top < value:
             adjustment.set_value(max(adjustment.get_lower(), top))
         elif bottom > value + page_size:

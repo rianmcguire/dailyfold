@@ -606,6 +606,44 @@ class TestReorderVisibility(unittest.TestCase):
         view.ensure_block_visible.assert_called_once_with(blocks[2])
 
 
+class TestEditingVisibility(unittest.TestCase):
+    def test_oversized_editor_reveals_cursor_instead_of_block_top(self):
+        block = Block(0, "long")
+        layout = SimpleNamespace(block=block, y=100, height=1000)
+        adjustment = SimpleNamespace(
+            get_page_size=lambda: 100,
+            get_value=lambda: 900,
+            get_lower=lambda: 0,
+            get_upper=lambda: 1200,
+            set_value=Mock(),
+        )
+        cursor = object()
+        buffer = SimpleNamespace(
+            get_insert=lambda: object(),
+            get_iter_at_mark=lambda _mark: cursor,
+        )
+        edit_view = SimpleNamespace(
+            get_buffer=lambda: buffer,
+            get_iter_location=lambda _iter: SimpleNamespace(y=900, height=20),
+        )
+        view = SimpleNamespace(
+            blocks=[block],
+            layouts=[layout],
+            editing_block=block,
+            edit_view=edit_view,
+            canvas=SimpleNamespace(
+                get_allocation=lambda: SimpleNamespace(width=500)
+            ),
+            _recompute_layouts=Mock(),
+            get_ancestor=lambda _kind: SimpleNamespace(
+                get_vadjustment=lambda: adjustment
+            ),
+        )
+
+        self.assertFalse(BlocksView._ensure_block_visible(view, block))
+        adjustment.set_value.assert_called_once_with(928)
+
+
 class TestContentFont(unittest.TestCase):
     def test_body_font_is_ten_percent_larger_than_widget_default(self):
         default_font = Pango.FontDescription("Sans 10")
