@@ -1528,13 +1528,12 @@ class BlocksView(Gtk.Overlay):
 
     def _handle_up(self):
         b, l, c = self._current_position()
-        if self.editing_block.code_lang is not None:
-            probe = self.edit_view.get_buffer().get_iter_at_mark(
-                self.edit_view.get_buffer().get_insert()
-            )
-            if self.edit_view.backward_display_line(probe):
-                self.desired_col = None
-                return False
+        probe = self.edit_view.get_buffer().get_iter_at_mark(
+            self.edit_view.get_buffer().get_insert()
+        )
+        if self.edit_view.backward_display_line(probe):
+            self.desired_col = None
+            return False
         if self.desired_col is None:
             self.desired_col = c
         if l > 0:
@@ -1551,13 +1550,12 @@ class BlocksView(Gtk.Overlay):
 
     def _handle_down(self):
         b, l, c = self._current_position()
-        if self.editing_block.code_lang is not None:
-            probe = self.edit_view.get_buffer().get_iter_at_mark(
-                self.edit_view.get_buffer().get_insert()
-            )
-            if self.edit_view.forward_display_line(probe):
-                self.desired_col = None
-                return False
+        probe = self.edit_view.get_buffer().get_iter_at_mark(
+            self.edit_view.get_buffer().get_insert()
+        )
+        if self.edit_view.forward_display_line(probe):
+            self.desired_col = None
+            return False
         if self.desired_col is None:
             self.desired_col = c
         lines = self.editing_block.text.split("\n")

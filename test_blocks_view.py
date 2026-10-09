@@ -337,6 +337,52 @@ class TestBackspaceJoin(unittest.TestCase):
 
 
 class TestBlockKeyboardShortcuts(unittest.TestCase):
+    def test_plain_up_stays_in_block_when_a_previous_display_line_exists(self):
+        probe = object()
+        buffer = SimpleNamespace(
+            get_insert=lambda: object(),
+            get_iter_at_mark=lambda _mark: probe,
+        )
+        edit_view = SimpleNamespace(
+            get_buffer=lambda: buffer,
+            backward_display_line=Mock(return_value=True),
+        )
+        view = SimpleNamespace(
+            editing_block=Block(0, "wrapped prose"),
+            edit_view=edit_view,
+            desired_col=8,
+            _current_position=lambda: (0, 0, 8),
+            _visible_neighbor=Mock(),
+        )
+
+        self.assertFalse(BlocksView._handle_up(view))
+        edit_view.backward_display_line.assert_called_once_with(probe)
+        self.assertIsNone(view.desired_col)
+        view._visible_neighbor.assert_not_called()
+
+    def test_plain_down_stays_in_block_when_a_next_display_line_exists(self):
+        probe = object()
+        buffer = SimpleNamespace(
+            get_insert=lambda: object(),
+            get_iter_at_mark=lambda _mark: probe,
+        )
+        edit_view = SimpleNamespace(
+            get_buffer=lambda: buffer,
+            forward_display_line=Mock(return_value=True),
+        )
+        view = SimpleNamespace(
+            editing_block=Block(0, "wrapped prose"),
+            edit_view=edit_view,
+            desired_col=8,
+            _current_position=lambda: (0, 0, 8),
+            _visible_neighbor=Mock(),
+        )
+
+        self.assertFalse(BlocksView._handle_down(view))
+        edit_view.forward_display_line.assert_called_once_with(probe)
+        self.assertIsNone(view.desired_col)
+        view._visible_neighbor.assert_not_called()
+
     def test_ctrl_shift_a_selects_all_from_editor_and_canvas(self):
         modifiers = (
             Gdk.ModifierType.CONTROL_MASK | Gdk.ModifierType.SHIFT_MASK
