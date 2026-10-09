@@ -240,6 +240,21 @@ def _edit_view_geometry(bl):
     )
 
 
+def _raw_text_height(pango_context, font, text, width):
+    layout = Pango.Layout.new(pango_context)
+    layout.set_font_description(font)
+    layout.set_width(max(1, width) * Pango.SCALE)
+    layout.set_wrap(Pango.WrapMode.WORD_CHAR)
+    layout.set_text(text, -1)
+    _, extents = layout.get_pixel_extents()
+
+    sample = Pango.Layout.new(pango_context)
+    sample.set_font_description(font)
+    sample.set_text("Ag", -1)
+    _, sample_extents = sample.get_pixel_extents()
+    return max(extents.height, sample_extents.height)
+
+
 def append_area_hit(blocks, layouts, header_layout, body_row_height, y):
     """Return whether *y* is in the row used to append a root block."""
     if blocks and blocks[-1].level == 0 and not blocks[-1].text:
@@ -692,7 +707,7 @@ class BlocksView(Gtk.Overlay):
     def ensure_block_visible(self, block):
         GLib.idle_add(self._ensure_block_visible, block)
 
-    def _grab_canvas_focus(self):
+    def _grab_focus_preserving_scroll(self, widget):
         scroller = self.get_ancestor(Gtk.ScrolledWindow)
         adjustment = (
             scroller.get_vadjustment() if scroller is not None else None
@@ -700,12 +715,15 @@ class BlocksView(Gtk.Overlay):
         scroll_position = (
             adjustment.get_value() if adjustment is not None else None
         )
-        self.canvas.grab_focus()
+        widget.grab_focus()
         if adjustment is not None:
-            # GtkScrolledWindow tries to reveal the focused widget. The canvas
-            # spans the whole document, so focusing it otherwise reveals its
-            # top edge and jumps to the beginning of the journal.
+            # GtkScrolledWindow tries to reveal an entire focused widget. Both
+            # the document canvas and a long editor can span the viewport, so
+            # restore the position and let the caller reveal the actual target.
             adjustment.set_value(scroll_position)
+
+    def _grab_canvas_focus(self):
+        BlocksView._grab_focus_preserving_scroll(self, self.canvas)
 
     def focus_search_result(self, block_index, match_start, match_end):
         """Reveal a search hit, enter editing, and select its first match."""
@@ -1091,7 +1109,8 @@ class BlocksView(Gtk.Overlay):
         is_code = bl.block.code_lang is not None
         tv = GtkSource.View() if is_code else Gtk.TextView()
         body_font = resolve_body_font(self.canvas)
-        tv.override_font(_code_font_of(body_font) if is_code else body_font)
+        editing_font = _code_font_of(body_font) if is_code else body_font
+        tv.override_font(editing_font)
         tv.set_wrap_mode(Gtk.WrapMode.WORD_CHAR)
         tv.set_left_margin(0)
         tv.set_right_margin(0)
@@ -1133,19 +1152,18 @@ class BlocksView(Gtk.Overlay):
 
         self.editing_block = bl.block
         self.edit_view = tv
-        self._editing_view_height = None
+        _, _, editing_width, _ = _edit_view_geometry(bl)
+        self._editing_view_height = _raw_text_height(
+            self.canvas.get_pango_context(),
+            editing_font,
+            bl.block.text,
+            editing_width,
+        )
         self.desired_x = None
 
         self.add_overlay(tv)
-        # Map the real editor transparently and give it its final width now.
-        # GtkTextView cannot report wrapped content height until it has received
-        # a width allocation; probing synchronously avoids painting a one-line
-        # editor before the first live height measurement arrives.
-        tv.set_opacity(0)
         tv.show()
-        tv.grab_focus()
-        self._probe_edit_view_height(bl)
-        tv.set_opacity(1)
+        self._grab_focus_preserving_scroll(tv)
         self.canvas.queue_draw()
         self.queue_resize()
         self.ensure_block_visible(bl.block)
@@ -1165,39 +1183,6 @@ class BlocksView(Gtk.Overlay):
                 ) = _edit_view_geometry(bl)
                 return True
         return False
-
-    def _probe_edit_view_height(self, bl):
-        """Synchronously lay out a new editor before its first visible frame."""
-        tv = self.edit_view
-        if tv is None or not tv.get_realized():
-            return False
-        x, y, width, height = _edit_view_geometry(bl)
-        if width <= 1:
-            return False
-
-        probe = Gdk.Rectangle()
-        probe.x = x
-        probe.y = y
-        probe.width = width
-        probe.height = max(1, height)
-        allocated_heights = set()
-        while probe.height not in allocated_heights:
-            allocated_heights.add(probe.height)
-            tv.size_allocate(probe)
-            self._measure_edit_view_height()
-            if self._editing_view_height is None:
-                return False
-            if probe.height == self._editing_view_height:
-                return True
-            probe.height = self._editing_view_height
-
-        # A height-dependent GTK layout should not oscillate at a fixed width,
-        # but if it does, reserve the largest observed size rather than loop or
-        # clip content at the smaller one.
-        probe.height = max(allocated_heights)
-        tv.size_allocate(probe)
-        self._editing_view_height = probe.height
-        return True
 
     def _measure_edit_view_height(self):
         """Record the live editor's full content height at its current width."""
