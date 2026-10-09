@@ -638,7 +638,7 @@ class TestEditingLayout(unittest.TestCase):
         allocated = []
 
         def size_allocate(probe):
-            allocated.append(probe)
+            allocated.append((probe.width, probe.height))
             allocation.width = probe.width
             allocation.height = probe.height
             visible.height = probe.height
@@ -647,7 +647,10 @@ class TestEditingLayout(unittest.TestCase):
             get_realized=lambda: True,
             get_allocation=lambda: allocation,
             get_buffer=lambda: SimpleNamespace(get_end_iter=lambda: object()),
-            get_line_yrange=lambda _end: (0, 63),
+            get_line_yrange=lambda _end: (
+                0,
+                57 if len(allocated) == 1 else 63,
+            ),
             get_visible_rect=lambda: visible,
             size_allocate=size_allocate,
         )
@@ -667,7 +670,51 @@ class TestEditingLayout(unittest.TestCase):
         )
 
         self.assertTrue(BlocksView._probe_edit_view_height(view, layout))
-        self.assertEqual(allocated[0].width, 320)
+        self.assertEqual(
+            allocated,
+            [(320, 17), (320, 57), (320, 63)],
+        )
+        self.assertEqual(view._editing_view_height, 63)
+
+    def test_probe_uses_larger_height_if_measurement_cycles(self):
+        allocation = SimpleNamespace(width=1, height=1)
+        visible = SimpleNamespace(height=1)
+        allocated = []
+
+        def size_allocate(probe):
+            allocated.append((probe.width, probe.height))
+            allocation.width = probe.width
+            allocation.height = probe.height
+            visible.height = probe.height
+
+        text_view = SimpleNamespace(
+            get_realized=lambda: True,
+            get_allocation=lambda: allocation,
+            get_buffer=lambda: SimpleNamespace(get_end_iter=lambda: object()),
+            get_line_yrange=lambda _end: (
+                0,
+                63 if allocation.height == 17 else 17,
+            ),
+            get_visible_rect=lambda: visible,
+            size_allocate=size_allocate,
+        )
+        layout = SimpleNamespace(
+            text_x=80,
+            text_width=320,
+            checkbox_x=None,
+            y=30,
+            height=25,
+        )
+        view = SimpleNamespace(
+            edit_view=text_view,
+            _editing_view_height=None,
+        )
+        view._measure_edit_view_height = lambda: (
+            BlocksView._measure_edit_view_height(view)
+        )
+
+        self.assertTrue(BlocksView._probe_edit_view_height(view, layout))
+        self.assertEqual(allocated, [(320, 17), (320, 63), (320, 63)])
         self.assertEqual(view._editing_view_height, 63)
 
     def test_observed_editor_height_positions_following_blocks(self):

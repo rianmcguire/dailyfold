@@ -1143,9 +1143,9 @@ class BlocksView(Gtk.Overlay):
         # editor before the first live height measurement arrives.
         tv.set_opacity(0)
         tv.show()
+        tv.grab_focus()
         self._probe_edit_view_height(bl)
         tv.set_opacity(1)
-        tv.grab_focus()
         self.canvas.queue_draw()
         self.queue_resize()
         self.ensure_block_visible(bl.block)
@@ -1180,9 +1180,24 @@ class BlocksView(Gtk.Overlay):
         probe.y = y
         probe.width = width
         probe.height = max(1, height)
+        allocated_heights = set()
+        while probe.height not in allocated_heights:
+            allocated_heights.add(probe.height)
+            tv.size_allocate(probe)
+            self._measure_edit_view_height()
+            if self._editing_view_height is None:
+                return False
+            if probe.height == self._editing_view_height:
+                return True
+            probe.height = self._editing_view_height
+
+        # A height-dependent GTK layout should not oscillate at a fixed width,
+        # but if it does, reserve the largest observed size rather than loop or
+        # clip content at the smaller one.
+        probe.height = max(allocated_heights)
         tv.size_allocate(probe)
-        self._measure_edit_view_height()
-        return self._editing_view_height is not None
+        self._editing_view_height = probe.height
+        return True
 
     def _measure_edit_view_height(self):
         """Record the live editor's full content height at its current width."""
