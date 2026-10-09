@@ -338,6 +338,72 @@ class TestBackspaceJoin(unittest.TestCase):
 
 
 class TestBlockKeyboardShortcuts(unittest.TestCase):
+    def test_up_enters_previous_block_at_bottom_display_line(self):
+        probe = object()
+        buffer = SimpleNamespace(
+            get_insert=lambda: object(),
+            get_iter_at_mark=lambda _mark: probe,
+        )
+        move_to_edge = Mock()
+        view = SimpleNamespace(
+            edit_view=SimpleNamespace(
+                get_buffer=lambda: buffer,
+                backward_display_line=Mock(return_value=False),
+            ),
+            desired_x=None,
+            _current_position=lambda: (1, 0, 4),
+            _current_display_x=Mock(return_value=37),
+            _visible_neighbor=lambda _block, _direction: 0,
+            _move_to_block_display_edge=move_to_edge,
+        )
+
+        self.assertTrue(BlocksView._handle_up(view))
+        move_to_edge.assert_called_once_with(0, at_end=True, x=37)
+
+    def test_down_enters_next_block_at_top_display_line(self):
+        probe = object()
+        buffer = SimpleNamespace(
+            get_insert=lambda: object(),
+            get_iter_at_mark=lambda _mark: probe,
+        )
+        move_to_edge = Mock()
+        view = SimpleNamespace(
+            edit_view=SimpleNamespace(
+                get_buffer=lambda: buffer,
+                forward_display_line=Mock(return_value=False),
+            ),
+            desired_x=None,
+            _current_position=lambda: (0, 0, 4),
+            _current_display_x=Mock(return_value=37),
+            _visible_neighbor=lambda _block, _direction: 1,
+            _move_to_block_display_edge=move_to_edge,
+        )
+
+        self.assertTrue(BlocksView._handle_down(view))
+        move_to_edge.assert_called_once_with(1, at_end=False, x=37)
+
+    def test_display_edge_cursor_uses_bottom_line_and_horizontal_position(self):
+        edge = object()
+        target = object()
+        buffer = SimpleNamespace(
+            get_end_iter=lambda: edge,
+            get_start_iter=Mock(),
+            place_cursor=Mock(),
+        )
+        edit_view = SimpleNamespace(
+            get_buffer=lambda: buffer,
+            backward_display_line_start=Mock(),
+            get_iter_location=lambda _iter: SimpleNamespace(y=40, height=20),
+            get_iter_at_location=Mock(return_value=(False, target)),
+        )
+        view = SimpleNamespace(edit_view=edit_view)
+
+        BlocksView._set_cursor_at_display_edge(view, at_end=True, x=37.8)
+
+        edit_view.backward_display_line_start.assert_called_once_with(edge)
+        edit_view.get_iter_at_location.assert_called_once_with(37, 50)
+        buffer.place_cursor.assert_called_once_with(target)
+
     def test_plain_up_stays_in_block_when_a_previous_display_line_exists(self):
         probe = object()
         buffer = SimpleNamespace(
@@ -351,14 +417,14 @@ class TestBlockKeyboardShortcuts(unittest.TestCase):
         view = SimpleNamespace(
             editing_block=Block(0, "wrapped prose"),
             edit_view=edit_view,
-            desired_col=8,
+            desired_x=8,
             _current_position=lambda: (0, 0, 8),
             _visible_neighbor=Mock(),
         )
 
         self.assertFalse(BlocksView._handle_up(view))
         edit_view.backward_display_line.assert_called_once_with(probe)
-        self.assertIsNone(view.desired_col)
+        self.assertIsNone(view.desired_x)
         view._visible_neighbor.assert_not_called()
 
     def test_plain_down_stays_in_block_when_a_next_display_line_exists(self):
@@ -374,14 +440,14 @@ class TestBlockKeyboardShortcuts(unittest.TestCase):
         view = SimpleNamespace(
             editing_block=Block(0, "wrapped prose"),
             edit_view=edit_view,
-            desired_col=8,
+            desired_x=8,
             _current_position=lambda: (0, 0, 8),
             _visible_neighbor=Mock(),
         )
 
         self.assertFalse(BlocksView._handle_down(view))
         edit_view.forward_display_line.assert_called_once_with(probe)
-        self.assertIsNone(view.desired_col)
+        self.assertIsNone(view.desired_x)
         view._visible_neighbor.assert_not_called()
 
     def test_ctrl_shift_a_selects_all_from_editor_and_canvas(self):
