@@ -226,6 +226,20 @@ def _apply_code_textview_style(tv, on, palette=None):
         ctx.remove_class("code-block")
 
 
+def _edit_view_geometry(bl):
+    text_x = bl.text_x
+    text_width = bl.text_width
+    if bl.checkbox_x is not None:
+        text_width += text_x - bl.checkbox_x
+        text_x = bl.checkbox_x
+    return (
+        int(text_x),
+        int(bl.y + TEXT_PAD),
+        int(text_width),
+        int(bl.height - TEXT_PAD * 2),
+    )
+
+
 def append_area_hit(blocks, layouts, header_layout, body_row_height, y):
     """Return whether *y* is in the row used to append a root block."""
     if blocks and blocks[-1].level == 0 and not blocks[-1].text:
@@ -1123,7 +1137,14 @@ class BlocksView(Gtk.Overlay):
         self.desired_col = None
 
         self.add_overlay(tv)
+        # Map the real editor transparently and give it its final width now.
+        # GtkTextView cannot report wrapped content height until it has received
+        # a width allocation; probing synchronously avoids painting a one-line
+        # editor before the first live height measurement arrives.
+        tv.set_opacity(0)
         tv.show()
+        self._probe_edit_view_height(bl)
+        tv.set_opacity(1)
         tv.grab_focus()
         self.canvas.queue_draw()
         self.queue_resize()
@@ -1136,17 +1157,32 @@ class BlocksView(Gtk.Overlay):
         self._recompute_layouts(overlay_alloc.width)
         for bl in self.layouts:
             if bl.block is self.editing_block:
-                text_x = bl.text_x
-                text_width = bl.text_width
-                if bl.checkbox_x is not None:
-                    text_width += text_x - bl.checkbox_x
-                    text_x = bl.checkbox_x
-                allocation.x = int(text_x)
-                allocation.y = int(bl.y + TEXT_PAD)
-                allocation.width = int(text_width)
-                allocation.height = int(bl.height - TEXT_PAD * 2)
+                (
+                    allocation.x,
+                    allocation.y,
+                    allocation.width,
+                    allocation.height,
+                ) = _edit_view_geometry(bl)
                 return True
         return False
+
+    def _probe_edit_view_height(self, bl):
+        """Synchronously lay out a new editor before its first visible frame."""
+        tv = self.edit_view
+        if tv is None or not tv.get_realized():
+            return False
+        x, y, width, height = _edit_view_geometry(bl)
+        if width <= 1:
+            return False
+
+        probe = Gdk.Rectangle()
+        probe.x = x
+        probe.y = y
+        probe.width = width
+        probe.height = max(1, height)
+        tv.size_allocate(probe)
+        self._measure_edit_view_height()
+        return self._editing_view_height is not None
 
     def _measure_edit_view_height(self):
         """Record the live editor's full content height at its current width."""
