@@ -351,7 +351,6 @@ class TestBlockKeyboardShortcuts(unittest.TestCase):
                 get_buffer=lambda: buffer,
                 backward_display_line=Mock(return_value=False),
             ),
-            desired_x=None,
             _current_position=lambda: (1, 0, 4),
             _current_display_x=Mock(return_value=37),
             _visible_neighbor=lambda _block, _direction: 0,
@@ -373,7 +372,6 @@ class TestBlockKeyboardShortcuts(unittest.TestCase):
                 get_buffer=lambda: buffer,
                 forward_display_line=Mock(return_value=False),
             ),
-            desired_x=None,
             _current_position=lambda: (0, 0, 4),
             _current_display_x=Mock(return_value=37),
             _visible_neighbor=lambda _block, _direction: 1,
@@ -397,7 +395,12 @@ class TestBlockKeyboardShortcuts(unittest.TestCase):
             get_iter_location=lambda _iter: SimpleNamespace(y=40, height=20),
             get_iter_at_location=Mock(return_value=(False, target)),
         )
-        view = SimpleNamespace(edit_view=edit_view)
+        view = SimpleNamespace(
+            edit_view=edit_view,
+            _set_cursor_on_display_line=lambda line, x: (
+                BlocksView._set_cursor_on_display_line(view, line, x)
+            ),
+        )
 
         BlocksView._set_cursor_at_display_edge(view, at_end=True, x=37.8)
 
@@ -405,7 +408,7 @@ class TestBlockKeyboardShortcuts(unittest.TestCase):
         edit_view.get_iter_at_location.assert_called_once_with(37, 50)
         buffer.place_cursor.assert_called_once_with(target)
 
-    def test_plain_up_stays_in_block_when_a_previous_display_line_exists(self):
+    def test_plain_up_is_left_to_gtk_within_a_wrapped_block(self):
         probe = object()
         buffer = SimpleNamespace(
             get_insert=lambda: object(),
@@ -415,20 +418,21 @@ class TestBlockKeyboardShortcuts(unittest.TestCase):
             get_buffer=lambda: buffer,
             backward_display_line=Mock(return_value=True),
         )
+        current_x = Mock()
         view = SimpleNamespace(
             editing_block=Block(0, "wrapped prose"),
             edit_view=edit_view,
-            desired_x=8,
             _current_position=lambda: (0, 0, 8),
+            _current_display_x=current_x,
             _visible_neighbor=Mock(),
         )
 
         self.assertFalse(BlocksView._handle_up(view))
         edit_view.backward_display_line.assert_called_once_with(probe)
-        self.assertIsNone(view.desired_x)
+        current_x.assert_not_called()
         view._visible_neighbor.assert_not_called()
 
-    def test_plain_down_stays_in_block_when_a_next_display_line_exists(self):
+    def test_plain_down_is_left_to_gtk_within_a_wrapped_block(self):
         probe = object()
         buffer = SimpleNamespace(
             get_insert=lambda: object(),
@@ -438,17 +442,18 @@ class TestBlockKeyboardShortcuts(unittest.TestCase):
             get_buffer=lambda: buffer,
             forward_display_line=Mock(return_value=True),
         )
+        current_x = Mock()
         view = SimpleNamespace(
             editing_block=Block(0, "wrapped prose"),
             edit_view=edit_view,
-            desired_x=8,
             _current_position=lambda: (0, 0, 8),
+            _current_display_x=current_x,
             _visible_neighbor=Mock(),
         )
 
         self.assertFalse(BlocksView._handle_down(view))
         edit_view.forward_display_line.assert_called_once_with(probe)
-        self.assertIsNone(view.desired_x)
+        current_x.assert_not_called()
         view._visible_neighbor.assert_not_called()
 
     def test_ctrl_shift_a_selects_all_from_editor_and_canvas(self):

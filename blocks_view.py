@@ -583,7 +583,6 @@ class BlocksView(Gtk.Overlay):
         self.layouts = []
         self.editing_block = None
         self.edit_view = None
-        self.desired_x = None
         self.selection = None
         self.on_change = on_change
         self.history = History(cap=1000)
@@ -649,7 +648,6 @@ class BlocksView(Gtk.Overlay):
         self.header_layout = None
         self.layouts = []
         self.selection = None
-        self.desired_x = None
         self._set_interaction_hover(None, False)
         self.history = History(cap=1000)
         self._content_height = 1
@@ -1175,8 +1173,6 @@ class BlocksView(Gtk.Overlay):
             bl.block.text,
             editing_width,
         )
-        self.desired_x = None
-
         self.add_overlay(tv)
         tv.show()
         self._grab_focus_preserving_scroll(tv)
@@ -1229,7 +1225,6 @@ class BlocksView(Gtk.Overlay):
     def _on_buffer_changed(self, buf):
         if self.editing_block is None:
             return
-        self.desired_x = None
         start, end = buf.get_bounds()
         self.editing_block.text = buf.get_text(start, end, True)
         self._measure_edit_view_height()
@@ -1323,7 +1318,6 @@ class BlocksView(Gtk.Overlay):
             return self._handle_move_block_in_edit(
                 +1 if event.keyval == Gdk.KEY_Down else -1
             )
-        self.desired_x = None
         return False
 
     def _buffer_is_fully_selected(self, buf):
@@ -1556,7 +1550,6 @@ class BlocksView(Gtk.Overlay):
         buf.place_cursor(buf.get_iter_at_offset(offset))
 
     def _move_to_block(self, target_idx, line_idx, col):
-        desired_x = self.desired_x
         self._finish_editing()
         target_block = self.blocks[target_idx]
         alloc = self.canvas.get_allocation()
@@ -1565,7 +1558,6 @@ class BlocksView(Gtk.Overlay):
             if bl.block is target_block:
                 offset = self._source_offset(target_block.text, line_idx, col)
                 self._start_editing(bl, offset)
-                self.desired_x = desired_x
                 return
 
     def _current_display_x(self):
@@ -1573,20 +1565,22 @@ class BlocksView(Gtk.Overlay):
         cursor = buf.get_iter_at_mark(buf.get_insert())
         return self.edit_view.get_iter_location(cursor).x
 
+    def _set_cursor_on_display_line(self, line_iter, x):
+        location = self.edit_view.get_iter_location(line_iter)
+        _, target = self.edit_view.get_iter_at_location(
+            max(0, int(x)),
+            location.y + max(1, location.height) // 2,
+        )
+        self.edit_view.get_buffer().place_cursor(target)
+
     def _set_cursor_at_display_edge(self, at_end, x):
         buf = self.edit_view.get_buffer()
         edge = buf.get_end_iter() if at_end else buf.get_start_iter()
         if at_end:
             self.edit_view.backward_display_line_start(edge)
-        location = self.edit_view.get_iter_location(edge)
-        _, target = self.edit_view.get_iter_at_location(
-            max(0, int(x)),
-            location.y + max(1, location.height) // 2,
-        )
-        buf.place_cursor(target)
+        self._set_cursor_on_display_line(edge, x)
 
     def _move_to_block_display_edge(self, target_idx, at_end, x):
-        desired_x = self.desired_x
         self._finish_editing()
         target_block = self.blocks[target_idx]
         alloc = self.canvas.get_allocation()
@@ -1596,7 +1590,6 @@ class BlocksView(Gtk.Overlay):
                 initial_offset = len(target_block.text) if at_end else 0
                 self._start_editing(bl, initial_offset)
                 self._set_cursor_at_display_edge(at_end, x)
-                self.desired_x = desired_x
                 return
 
     def _move_to_cursor(self, cursor):
@@ -1615,14 +1608,11 @@ class BlocksView(Gtk.Overlay):
             self.edit_view.get_buffer().get_insert()
         )
         if self.edit_view.backward_display_line(probe):
-            self.desired_x = None
             return False
-        if self.desired_x is None:
-            self.desired_x = self._current_display_x()
         prev_idx = self._visible_neighbor(b, -1)
         if prev_idx is not None:
             self._move_to_block_display_edge(
-                prev_idx, at_end=True, x=self.desired_x
+                prev_idx, at_end=True, x=self._current_display_x()
             )
             return True
         return True
@@ -1633,21 +1623,17 @@ class BlocksView(Gtk.Overlay):
             self.edit_view.get_buffer().get_insert()
         )
         if self.edit_view.forward_display_line(probe):
-            self.desired_x = None
             return False
-        if self.desired_x is None:
-            self.desired_x = self._current_display_x()
         next_idx = self._visible_neighbor(b, +1)
         if next_idx is not None:
             self._move_to_block_display_edge(
-                next_idx, at_end=False, x=self.desired_x
+                next_idx, at_end=False, x=self._current_display_x()
             )
             return True
         return True
 
     def _handle_left(self):
         b, l, c = self._current_position()
-        self.desired_x = None
         if c > 0:
             return False
         if l > 0:
@@ -1813,7 +1799,6 @@ class BlocksView(Gtk.Overlay):
 
     def _handle_right(self):
         b, l, c = self._current_position()
-        self.desired_x = None
         lines = self.editing_block.text.split("\n")
         if c < len(lines[l]):
             return False
